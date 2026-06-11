@@ -9,13 +9,15 @@ description = "PiBot Control Suite — discover, provision, control, and monitor
 requires-python = ">=3.11"
 dependencies = [
     "pyserial>=3.5",  # SerialTransport (USB / GPIO-UART / RFCOMM) — milestone M3
+    "aiohttp>=3.9",   # pibotd agent HTTP/WS server + teleop/monitor WS clients — M4
+    "psutil>=5.9",    # Pi health telemetry (cpu/mem/load/disk) — M4
 ]
 
 [project.scripts]
 pibot = "pibot.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["pibot"]
+packages = ["pibot", "agent"]
 
 [tool.ruff]
 target-version = "py311"

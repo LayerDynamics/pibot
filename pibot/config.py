@@ -26,6 +26,7 @@ class Config:
     transport: str = "serial"
     encoding: str = "ascii"
     tcp_port: int = 3333
+    robot_host: str = "127.0.0.1"
     serial_port: str = "/dev/ttyACM0"
     serial_baud: int = 115200
     cmd_timeout: float = 1.0
@@ -46,6 +47,7 @@ _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     "transport": (str,),
     "encoding": (str,),
     "tcp_port": (int,),
+    "robot_host": (str,),
     "serial_port": (str,),
     "serial_baud": (int,),
     "cmd_timeout": (float, int),
