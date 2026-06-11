@@ -58,6 +58,14 @@ def run_capture(
     )
 
 
+def preview(argv: Sequence[str], *, label: str = "would run") -> int:
+    """``--dry-run`` helper: show the command that *would* run, execute nothing, return 0."""
+    line = " ".join(argv)
+    _log.info("[dry-run] %s: %s", label, line)
+    print(f"[dry-run] {label}: {line}")
+    return 0
+
+
 def run_interactive(argv: Sequence[str]) -> int:
     """Run ``argv`` with inherited stdio (interactive). Returns the exit code."""
     _log.debug("run_interactive: %s", " ".join(argv))

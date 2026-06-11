@@ -25,12 +25,15 @@ def run(
     identity: str | None = None,
     timeout: float | None = None,
     as_json: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Run a remote command on ``target`` and return its exit code."""
     address = inventory.resolve(target)
     login = user.resolve_user(address, cfg, explicit=explicit_user)
     ident = identity or cfg.identity
     argv = sshcmd.run_command(address, list(command), user=login, identity=ident)
+    if dry_run:
+        return runner.preview(argv, label=f"ssh {login}@{address}")
     result = runner.run_capture(argv, timeout=timeout)
     if as_json:
         print(

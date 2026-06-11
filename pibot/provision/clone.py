@@ -46,6 +46,7 @@ def clone(
     device: str = "/dev/nvme0n1",
     shrink: bool = False,
     stream_to_file: StreamFn | None = None,
+    dry_run: bool = False,
 ) -> int:
     """Stream a gzip image of the Pi's ``device`` into the local ``to_file``."""
     address = inventory.resolve(target)
@@ -54,6 +55,10 @@ def clone(
         _log.info("shrink requested; image will be gzip-compressed on the fly")
     remote = f"sudo dd if={device} bs=4M status=none | gzip -c"
     argv = sshcmd.run_command(address, ["bash", "-lc", remote], user=login, identity=cfg.identity)
+    if dry_run:
+        from pibot.connection import runner
+
+        return runner.preview([*argv, ">", to_file], label="clone")
     _log.info("cloning %s:%s -> %s", address, device, to_file)
     return (stream_to_file or _stream_to_file)(argv, to_file)
 
@@ -68,16 +73,21 @@ def restore(
     device: str = "/dev/nvme0n1",
     confirm: bool = False,
     stream_from_file: StreamFn | None = None,
+    dry_run: bool = False,
 ) -> int:
     """Restore a gzip image from ``from_file`` onto the Pi's ``device``."""
     if not Path(from_file).is_file():
         raise PibotError(f"image not found: {from_file}")
-    if not confirm:
+    if not confirm and not dry_run:
         raise PibotError(f"restore overwrites {device} on the robot; pass --confirm")
     address = inventory.resolve(target)
     login = _resolve_user(address, cfg, user)
     remote = f"gunzip -c | sudo dd of={device} bs=4M"
     argv = sshcmd.run_command(address, ["bash", "-lc", remote], user=login, identity=cfg.identity)
+    if dry_run:
+        from pibot.connection import runner
+
+        return runner.preview([from_file, "|", *argv], label="restore")
     _log.info("restoring %s -> %s:%s", from_file, address, device)
     return (stream_from_file or _stream_from_file)(argv, from_file)
 

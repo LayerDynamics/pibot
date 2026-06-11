@@ -25,6 +25,7 @@ def start(
     inventory: Inventory,
     user: str | None = None,
     python: str = "python3",
+    dry_run: bool = False,
 ) -> int:
     """Launch pibotd on the Pi (backgrounded, logging to the agent log)."""
     script = (
@@ -33,15 +34,32 @@ def start(
         f"echo pibotd-started pid=$!"
     )
     return commands.run(
-        target, ["bash", "-lc", script], cfg=cfg, inventory=inventory, explicit_user=user
+        target,
+        ["bash", "-lc", script],
+        cfg=cfg,
+        inventory=inventory,
+        explicit_user=user,
+        dry_run=dry_run,
     )
 
 
-def stop(target: str, *, cfg: Config, inventory: Inventory, user: str | None = None) -> int:
+def stop(
+    target: str,
+    *,
+    cfg: Config,
+    inventory: Inventory,
+    user: str | None = None,
+    dry_run: bool = False,
+) -> int:
     """Stop pibotd on the Pi."""
     script = "pkill -f 'python.* -m agent' && echo stopped || echo not-running"
     return commands.run(
-        target, ["bash", "-lc", script], cfg=cfg, inventory=inventory, explicit_user=user
+        target,
+        ["bash", "-lc", script],
+        cfg=cfg,
+        inventory=inventory,
+        explicit_user=user,
+        dry_run=dry_run,
     )
 
 

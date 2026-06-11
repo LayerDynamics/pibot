@@ -25,17 +25,41 @@ def validate_boot_order(value: str) -> str:
     return value.lower()
 
 
-def status(target: str, *, cfg: Config, inventory: Inventory, user: str | None = None) -> int:
+def status(
+    target: str,
+    *,
+    cfg: Config,
+    inventory: Inventory,
+    user: str | None = None,
+    dry_run: bool = False,
+) -> int:
     """Show the current bootloader status (``rpi-eeprom-update``)."""
     return commands.run(
-        target, ["rpi-eeprom-update"], cfg=cfg, inventory=inventory, explicit_user=user
+        target,
+        ["rpi-eeprom-update"],
+        cfg=cfg,
+        inventory=inventory,
+        explicit_user=user,
+        dry_run=dry_run,
     )
 
 
-def show_config(target: str, *, cfg: Config, inventory: Inventory, user: str | None = None) -> int:
+def show_config(
+    target: str,
+    *,
+    cfg: Config,
+    inventory: Inventory,
+    user: str | None = None,
+    dry_run: bool = False,
+) -> int:
     """Print the current bootloader configuration (``rpi-eeprom-config``)."""
     return commands.run(
-        target, ["rpi-eeprom-config"], cfg=cfg, inventory=inventory, explicit_user=user
+        target,
+        ["rpi-eeprom-config"],
+        cfg=cfg,
+        inventory=inventory,
+        explicit_user=user,
+        dry_run=dry_run,
     )
 
 
@@ -46,9 +70,10 @@ def update(
     inventory: Inventory,
     user: str | None = None,
     confirm: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Update the bootloader to the latest (``sudo rpi-eeprom-update -a``)."""
-    if not confirm:
+    if not confirm and not dry_run:
         raise PibotError("updating the bootloader is destructive; pass --confirm")
     return commands.run(
         target,
@@ -56,6 +81,7 @@ def update(
         cfg=cfg,
         inventory=inventory,
         explicit_user=user,
+        dry_run=dry_run,
     )
 
 
@@ -77,10 +103,11 @@ def set_boot_order(
     inventory: Inventory,
     user: str | None = None,
     confirm: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Set the bootloader BOOT_ORDER (e.g. ``0xf416`` = NVMe first)."""
     normalized = validate_boot_order(value)
-    if not confirm:
+    if not confirm and not dry_run:
         raise PibotError("changing BOOT_ORDER is destructive; pass --confirm")
     return commands.run(
         target,
@@ -88,4 +115,5 @@ def set_boot_order(
         cfg=cfg,
         inventory=inventory,
         explicit_user=user,
+        dry_run=dry_run,
     )

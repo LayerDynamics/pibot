@@ -25,7 +25,7 @@ def upload_argv(sketch: str, fqbn: str, port: str, *, binary: str) -> list[str]:
     return [binary, "upload", "-p", port, "--fqbn", fqbn, sketch]
 
 
-def _default_run(argv: list[str]) -> int:
+def _default_run(argv: list[str]) -> int:  # pragma: no cover - thin subprocess glue
     import subprocess
 
     return subprocess.run(argv).returncode
@@ -47,10 +47,16 @@ def flash(
     port: str,
     binary: str | None = None,
     run: RunFn | None = None,
+    dry_run: bool = False,
 ) -> int:
     """Upload ``sketch`` to the Arduino on ``port``."""
     bin_ = binary or tools.require_tool("arduino-cli")
-    rc = (run or _default_run)(upload_argv(sketch, fqbn, port, binary=bin_))
+    argv = upload_argv(sketch, fqbn, port, binary=bin_)
+    if dry_run:
+        from pibot.connection import runner
+
+        return runner.preview(argv, label="firmware flash")
+    rc = (run or _default_run)(argv)
     if rc != 0:
         raise PibotError(f"arduino-cli upload failed (exit {rc})")
     return rc
