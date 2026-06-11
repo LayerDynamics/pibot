@@ -11,22 +11,79 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from platform import system as platform_system
 
 from pibot.errors import PibotError
 from pibot.logging import get_logger
-from pibot.provision import devices, imager, tools
+from pibot.provision import devices, firstboot, imager, tools
 
 _log = get_logger("flash")
 
 RunFn = Callable[[list[str]], int]
 EnumFn = Callable[[], list[devices.BlockDevice]]
+MountFn = Callable[[str], str]
+UnmountFn = Callable[[str], None]
+
+
+@dataclass
+class FirstBootSpec:
+    """Headless first-boot configuration applied to the boot partition after a flash."""
+
+    hostname: str
+    username: str
+    ssh_authorized_keys: list[str] = field(default_factory=list)
+    password_hash: str | None = None
+    flavor: str | None = None  # "ubuntu" | "rpi-os" | None (auto-detect)
 
 
 def _default_run(argv: list[str]) -> int:
     import subprocess
 
     return subprocess.run(argv).returncode
+
+
+def _default_mount_boot(device_node: str) -> str:  # pragma: no cover - macOS/diskutil glue
+    import plistlib
+    import subprocess
+
+    boot_part = f"{device_node}s1"
+    subprocess.run(["diskutil", "mount", boot_part], check=True)
+    info = plistlib.loads(
+        subprocess.run(["diskutil", "info", "-plist", boot_part], capture_output=True).stdout
+    )
+    mount = info.get("MountPoint")
+    if not mount:
+        raise PibotError(f"could not mount boot partition {boot_part}")
+    return mount
+
+
+def _default_unmount(device_node: str) -> None:  # pragma: no cover - macOS/diskutil glue
+    import subprocess
+
+    subprocess.run(["diskutil", "unmountDisk", device_node])
+
+
+def apply_first_boot_to_device(
+    device_node: str,
+    spec: FirstBootSpec,
+    *,
+    mount_boot_fn: MountFn | None = None,
+    unmount_fn: UnmountFn | None = None,
+) -> None:
+    """Mount the boot partition of ``device_node``, write first-boot config, unmount."""
+    mount = (mount_boot_fn or _default_mount_boot)(device_node)
+    try:
+        firstboot.apply_first_boot(
+            mount,
+            hostname=spec.hostname,
+            username=spec.username,
+            ssh_authorized_keys=spec.ssh_authorized_keys,
+            password_hash=spec.password_hash,
+            flavor=spec.flavor,
+        )
+    finally:
+        (unmount_fn or _default_unmount)(device_node)
 
 
 def _find(devs: list[devices.BlockDevice], node: str) -> devices.BlockDevice:
@@ -53,6 +110,9 @@ def flash_to_device(
     enumerate_fn: EnumFn | None = None,
     run: RunFn | None = None,
     imager_binary: str | None = None,
+    first_boot: FirstBootSpec | None = None,
+    mount_boot_fn: MountFn | None = None,
+    unmount_fn: UnmountFn | None = None,
 ) -> int:
     """Write ``image`` to a removable ``device_node`` after safety checks."""
     system = system or platform_system()
@@ -72,6 +132,11 @@ def flash_to_device(
 
     if dry_run:
         _show(steps)
+        if first_boot:
+            print(
+                f"DRY-RUN: apply first-boot config (hostname={first_boot.hostname}, "
+                f"user={first_boot.username}, {len(first_boot.ssh_authorized_keys)} key(s))"
+            )
         return 0
 
     runner = run or _default_run
@@ -80,6 +145,12 @@ def flash_to_device(
         if rc != 0:
             raise PibotError(f"flash step failed (exit {rc}): {' '.join(step)}")
     _log.info("flashed %s to %s", image, device_node)
+
+    if first_boot:
+        apply_first_boot_to_device(
+            device_node, first_boot, mount_boot_fn=mount_boot_fn, unmount_fn=unmount_fn
+        )
+        _log.info("applied first-boot config to %s", device_node)
     return 0
 
 
@@ -95,6 +166,7 @@ def flash_via_rpiboot(
     rpiboot_run: RunFn | None = None,
     rpiboot_binary: str | None = None,
     flash_fn: Callable[..., int] | None = None,
+    first_boot: FirstBootSpec | None = None,
     poll_attempts: int = 20,
     poll_delay: float = 1.0,
 ) -> int:
@@ -107,6 +179,11 @@ def flash_via_rpiboot(
         print("DRY-RUN: hold the Pi 5 power button while connecting USB-C, then:")
         print("DRY-RUN:", binary, "-d", "mass-storage-gadget64")
         print("DRY-RUN: wait for the NVMe to enumerate, then rpi-imager writes", image)
+        if first_boot:
+            print(
+                f"DRY-RUN: apply first-boot config (hostname={first_boot.hostname}, "
+                f"user={first_boot.username}, {len(first_boot.ssh_authorized_keys)} key(s))"
+            )
         return 0
 
     _log.info("hold the Pi 5 power button while connecting USB-C (no jumper on Pi 5)")
@@ -135,4 +212,5 @@ def flash_via_rpiboot(
         expected_size=expected_size,
         expected_model=expected_model,
         system=system,
+        first_boot=first_boot,
     )

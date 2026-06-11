@@ -192,6 +192,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="required to actually write",
     )
+    p_flash.add_argument("--hostname", help="hostname for the flashed OS (default: pibot)")
+    p_flash.add_argument("--username", help="first user (default: ubuntu for --os ubuntu, else pi)")
+    p_flash.add_argument(
+        "--os",
+        choices=["ubuntu", "rpi-os"],
+        dest="os_flavor",
+        help="OS flavor: cloud-init (ubuntu) vs custom.toml (rpi-os)",
+    )
+    p_flash.add_argument(
+        "--authorized-key",
+        action="append",
+        dest="authorized_keys",
+        default=argparse.SUPPRESS,
+        help="SSH public key to authorize on first boot (repeatable)",
+    )
+    p_flash.add_argument(
+        "--authorized-key-file",
+        dest="key_file",
+        default=argparse.SUPPRESS,
+        help="read a public key from a file, e.g. ~/.ssh/id_ed25519.pub",
+    )
     p_flash.set_defaults(func=cmd_flash)
 
     p_eeprom = sub.add_parser("eeprom", parents=[g, t], help="manage the Pi bootloader EEPROM")
@@ -421,14 +442,42 @@ def cmd_tunnel(args: argparse.Namespace) -> int:
 # ---- provisioning & flashing ---------------------------------------------
 
 
+def _build_first_boot(args: argparse.Namespace) -> flash.FirstBootSpec | None:
+    keys = list(getattr(args, "authorized_keys", None) or [])
+    key_file = getattr(args, "key_file", None)
+    if key_file:
+        keys.append(Path(key_file).expanduser().read_text(encoding="utf-8").strip())
+    hostname = getattr(args, "hostname", None)
+    username = getattr(args, "username", None)
+    flavor = getattr(args, "os_flavor", None)
+    if not (keys or hostname or username or flavor):
+        return None
+    if not keys:
+        raise UsageError(
+            "first-boot config requested but no key; pass --authorized-key/--authorized-key-file"
+        )
+    default_user = "ubuntu" if flavor == "ubuntu" else "pi"
+    return flash.FirstBootSpec(
+        hostname=hostname or "pibot",
+        username=username or default_user,
+        ssh_authorized_keys=keys,
+        flavor=flavor,
+    )
+
+
 def cmd_flash(args: argparse.Namespace) -> int:
     dry_run = getattr(args, "dry_run", False)
     if not dry_run and not getattr(args, "confirm", False):
         raise UsageError("flashing is destructive; pass --confirm (or --dry-run to preview)")
     sha256 = getattr(args, "sha256", None)
+    first_boot = _build_first_boot(args)
     if getattr(args, "device", None):
-        return flash.flash_to_device(args.image, args.device, sha256=sha256, dry_run=dry_run)
-    return flash.flash_via_rpiboot(args.image, sha256=sha256, dry_run=dry_run)
+        return flash.flash_to_device(
+            args.image, args.device, sha256=sha256, dry_run=dry_run, first_boot=first_boot
+        )
+    return flash.flash_via_rpiboot(
+        args.image, sha256=sha256, dry_run=dry_run, first_boot=first_boot
+    )
 
 
 def cmd_eeprom(args: argparse.Namespace) -> int:

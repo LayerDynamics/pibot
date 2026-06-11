@@ -23,6 +23,75 @@ def test_flash_device_dry_run_dispatch(monkeypatch) -> None:
     assert seen == {"image": "os.img", "node": "/dev/disk4", "dry": True}
 
 
+def test_flash_with_authorized_key_builds_first_boot(monkeypatch) -> None:
+    seen = {}
+    monkeypatch.setattr(
+        cli.flash,
+        "flash_to_device",
+        lambda image, node, **k: seen.update(fb=k.get("first_boot")) or 0,
+    )
+    rc = cli.main(
+        [
+            "flash",
+            "--device",
+            "/dev/disk4",
+            "--image",
+            "u.img",
+            "--dry-run",
+            "--os",
+            "ubuntu",
+            "--authorized-key",
+            "ssh-ed25519 AAAA me",
+        ]
+    )
+    assert rc == 0
+    fb = seen["fb"]
+    assert fb.flavor == "ubuntu"
+    assert fb.username == "ubuntu"  # default user follows --os
+    assert fb.ssh_authorized_keys == ["ssh-ed25519 AAAA me"]
+
+
+def test_flash_authorized_key_file(monkeypatch, tmp_path) -> None:
+    seen = {}
+    keyfile = tmp_path / "id_ed25519.pub"
+    keyfile.write_text("ssh-ed25519 AAAAFROMFILE me\n")
+    monkeypatch.setattr(
+        cli.flash,
+        "flash_to_device",
+        lambda image, node, **k: seen.update(fb=k.get("first_boot")) or 0,
+    )
+    cli.main(
+        [
+            "flash",
+            "--device",
+            "/dev/disk4",
+            "--image",
+            "u.img",
+            "--dry-run",
+            "--authorized-key-file",
+            str(keyfile),
+        ]
+    )
+    assert seen["fb"].ssh_authorized_keys == ["ssh-ed25519 AAAAFROMFILE me"]
+
+
+def test_flash_first_boot_without_key_errors(monkeypatch) -> None:
+    monkeypatch.setattr(cli.flash, "flash_to_device", lambda *a, **k: 0)
+    rc = cli.main(
+        [
+            "flash",
+            "--device",
+            "/dev/disk4",
+            "--image",
+            "u.img",
+            "--dry-run",
+            "--hostname",
+            "pibot",
+        ]
+    )
+    assert rc == 2  # UsageError: first-boot requested but no key
+
+
 def test_flash_nvme_target_uses_rpiboot(monkeypatch) -> None:
     seen = {}
     monkeypatch.setattr(
