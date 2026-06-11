@@ -1,0 +1,9 @@
+# Development toolchain for the PiBot Control Suite (host side).
+# The runtime package itself has no third-party dependencies in M0; per-milestone
+# runtime deps (pyserial, aiohttp, bleak, smbus2, …) are added to a Pi-side
+# requirements file when their milestone lands.
+hatchling
+ruff
+mypy
+pytest
+pytest-cov

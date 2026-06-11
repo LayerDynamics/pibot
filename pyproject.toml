@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pibot"
+version = "0.0.0"
+description = "PiBot Control Suite — discover, provision, control, and monitor the PiBot robot"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+pibot = "pibot.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pibot"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+no_implicit_optional = true
+ignore_missing_imports = true
+
+# pifinder.py is the already-shipped tool; it carries type hints but is loaded by
+# path, not as part of the package. Tighten it under mypy in M6 (see plan M6 T6.1).
+[[tool.mypy.overrides]]
+module = ["pifinder"]
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "hardware: tests that require the physical Pi/Arduino (skipped unless PIBOT_TEST_HOST is set)",
+]
+
+[tool.coverage.run]
+source = ["pibot"]
+omit = ["pibot/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
