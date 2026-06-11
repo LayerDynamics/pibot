@@ -1,0 +1,22 @@
+# Reference rendering of the pibotd systemd unit for the default layout
+# (remote_base=/opt/pibot, venv=/opt/pibot/venv, user=pi). The deploy generates
+# this programmatically via pibot.deploy.service.render_unit() and installs it with
+# `sudo tee /etc/systemd/system/pibotd.service`; this file is committed only as a
+# human-readable reference. Adjust User=/paths to match your deploy.
+[Unit]
+Description=PiBot robot control agent (pibotd)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/pibot/current
+ExecStart=/opt/pibot/venv/bin/python -m agent
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

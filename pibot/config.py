@@ -29,6 +29,12 @@ class Config:
     robot_host: str = "127.0.0.1"
     serial_port: str = "/dev/ttyACM0"
     serial_baud: int = 115200
+    ble_address: str = ""
+    i2c_bus: int = 1
+    i2c_address: int = 0x08
+    rfcomm_address: str = ""
+    rfcomm_channel: int = 1
+    deploy_base: str = "/opt/pibot"
     cmd_timeout: float = 1.0
     teleop_rate_hz: int = 20
     watchdog_ms: int = 300
@@ -50,6 +56,12 @@ _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     "robot_host": (str,),
     "serial_port": (str,),
     "serial_baud": (int,),
+    "ble_address": (str,),
+    "i2c_bus": (int,),
+    "i2c_address": (int,),
+    "rfcomm_address": (str,),
+    "rfcomm_channel": (int,),
+    "deploy_base": (str,),
     "cmd_timeout": (float, int),
     "teleop_rate_hz": (int,),
     "watchdog_ms": (int,),

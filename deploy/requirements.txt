@@ -1,0 +1,9 @@
+# Pi-side runtime requirements for pibotd (installed into <base>/venv by the deploy).
+# Host-only tooling (the CLI's network/provisioning extras) is not needed here.
+pyserial>=3.5
+aiohttp>=3.9
+psutil>=5.9
+
+# Wireless transports (optional; uncomment per robot hardware):
+#   bleak>=0.21    # BLE (Nordic-UART style) — BleTransport
+#   smbus2>=0.4    # I2C — I2CTransport

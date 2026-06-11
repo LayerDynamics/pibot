@@ -1,0 +1,23 @@
+# Host-only tooling and artifacts excluded from the Pi deploy payload.
+# The deployable is the installable package: pibot/ + agent/ + pyproject.toml +
+# deploy/requirements.txt. We deliberately do NOT strip host-only modules out of
+# the pibot/ package (cli.py, discovery.py, provision/, connection/): agent/ imports
+# transitively from pibot/, and surgically removing files would break that web for
+# the sake of a few unused-on-the-Pi modules. Exclude whole top-level tooling dirs only.
+.git/
+tools/
+tests/
+docs/
+firmware/
+resources/
+scripts/
+releases/
+.venv/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+PIML.md

@@ -11,7 +11,14 @@ dependencies = [
     "pyserial>=3.5",  # SerialTransport (USB / GPIO-UART / RFCOMM) — milestone M3
     "aiohttp>=3.9",   # pibotd agent HTTP/WS server + teleop/monitor WS clients — M4
     "psutil>=5.9",    # Pi health telemetry (cpu/mem/load/disk) — M4
+    "pyyaml>=6.0",    # pibot play — scripted motion sequence files — M5
 ]
+
+[project.optional-dependencies]
+# Wireless transports whose drivers are Pi-only; the host CLI and tests use fakes,
+# so these are not pulled in by default. Installed on the robot via deploy/requirements.txt.
+ble = ["bleak>=0.21"]    # BleTransport (BLE, Nordic-UART style) — M5
+i2c = ["smbus2>=0.4"]    # I2CTransport — M5
 
 [project.scripts]
 pibot = "pibot.cli:main"
