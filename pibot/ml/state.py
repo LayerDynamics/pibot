@@ -20,8 +20,11 @@ class VelocityState:
     def update(self, action: Any) -> None:
         """Set ``[v, ω]`` from a per-step action (dict ``{"actions": vec}`` or a raw vector)."""
         vec = action.get("actions") if isinstance(action, dict) else action
-        if vec is not None and len(vec) >= 2:
-            self.v, self.w = float(vec[0]), float(vec[1])
+        try:
+            if vec is not None and len(vec) >= 2:
+                self.v, self.w = float(vec[0]), float(vec[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            pass
 
     def vector(self) -> list[float]:
         return [self.v, self.w]
