@@ -94,7 +94,11 @@ halts.
 pibot autonomy pibot --run --prompt "drive to the red ball" --max-speed 0.2 --dry-run
 # 2. after a real run, the e-stop latch + deadman behaviour is the SAME path the tests prove:
 .venv/bin/pytest tests/test_autonomy_safety.py tests/test_autonomy_drop_to_stop.py -q
-# 3. hardware drop-to-stop: stall the link mid-drive and confirm the robot physically halts
+# 3. policy-link health while driving (T11.1) is LOGGED BY THE `pibot autonomy --run` PROCESS
+#    (`autonomy step: policy={'connected': True, 'last_inference_ms': …, 'chunk_age_ms': …}`).
+#    It does NOT yet appear in `pibot monitor` — feeding pibotd's /telemetry is a pending
+#    integration (the runner is a separate process); see docs/autonomy-e2e-signoff.md.
+# 4. hardware drop-to-stop: stall the link mid-drive and confirm the robot physically halts
 #    (firmware watchdog is primary on a hard stall; the host deadman covers loop-alive-but-quiet)
 pibot monitor pibot --once        # robot stationary after the stall
 ```

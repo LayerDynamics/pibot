@@ -17,7 +17,7 @@ from pathlib import Path
 
 from pibot import agent_ctl, discovery
 from pibot import monitor as monitor_mod
-from pibot.config import Config, load_config
+from pibot.config import TASK_PROMPTS, Config, load_config
 from pibot.connection import commands, keys, sshcmd, transfer, tunnel, user
 from pibot.control import oneshot
 from pibot.control.safety import Limits
@@ -375,6 +375,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="stream observations + log actions, NO actuation (bring-up gate)",
     )
     p_auto.add_argument("--prompt", default=argparse.SUPPRESS, help="task prompt for the policy")
+    p_auto.add_argument(
+        "--task",
+        choices=sorted(TASK_PROMPTS),
+        default=argparse.SUPPRESS,
+        help="behavior shorthand -> the canonical prompt (overridden by --prompt)",
+    )
     p_auto.add_argument(
         "--record",
         action="store_true",
@@ -989,9 +995,20 @@ def _run_closed_loop(
         camera.close()
 
 
+def _resolve_prompt(args: argparse.Namespace, cfg: Config) -> str:
+    """Pick the task prompt: explicit ``--prompt`` wins, else ``--task`` shorthand, else config."""
+    explicit = getattr(args, "prompt", None)
+    if explicit:
+        return explicit
+    task = getattr(args, "task", None)
+    if task:
+        return TASK_PROMPTS[task]
+    return cfg.prompt
+
+
 def cmd_autonomy(args: argparse.Namespace) -> int:
     cfg, inv = _context()
-    prompt = getattr(args, "prompt", None) or cfg.prompt
+    prompt = _resolve_prompt(args, cfg)
     if getattr(args, "run", False):
         return _run_closed_loop(
             cfg,

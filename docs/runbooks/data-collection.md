@@ -23,7 +23,9 @@ pibot autonomy pibot --record --prompt "follow me"            --out demos/follow
 pibot autonomy pibot --record --prompt "explore the room"     --out demos/explore
 ```
 Each session is teleop (WASD/arrows; `q` ends the episode); every step logs the camera
-frame + the `[v, ω]` you commanded.
+frame + the `[v, ω]` you commanded. `--task {goal,follow,explore}` is shorthand for the three
+canonical prompts above (keep them identical between recording and closed-loop runs — the
+prompt is part of the policy's input).
 
 ## 2. Build the dataset + norm stats
 The record command writes a LeRobot dataset per `--out`. Compute normalization stats over

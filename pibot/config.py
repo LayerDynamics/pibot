@@ -52,6 +52,16 @@ class Config:
     prompt: str = ""
 
 
+# The three SPEC-2 behaviors (FR-9): a CLI shorthand (`--task`) -> the canonical prompt the
+# policy was fine-tuned on. Keep these strings in lockstep with the demonstration prompts in
+# docs/runbooks/data-collection.md.
+TASK_PROMPTS: dict[str, str] = {
+    "goal": "drive to the red ball",
+    "follow": "follow me",
+    "explore": "explore the room",
+}
+
+
 # field name -> accepted types. ``(float, int)`` fields accept an int literal and
 # coerce it to float. bool is rejected for numeric fields even though it subclasses
 # int, so ``teleop_rate_hz = true`` is an error, not 1.

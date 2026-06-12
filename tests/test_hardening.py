@@ -41,6 +41,22 @@ def test_fstab_snippet_mounts_persistent_rw_partition() -> None:
     assert "ext4" in s  # not f2fs (research: ext4 survives power loss)
 
 
+def test_log_upload_points_at_the_mac_over_nebula() -> None:
+    # T11.2: ship journald to the Mac's Nebula IP; logs stay volatile locally.
+    conf = hardening.render_log_upload("192.168.100.10")
+    assert "[Upload]" in conf
+    assert "URL=" in conf
+    assert "192.168.100.10" in conf  # the Mac's Nebula IP is the sink
+    assert str(hardening.JOURNAL_UPLOAD_PORT) in conf
+    # local storage is unchanged — log-shipping must not start writing the NVMe
+    assert "Storage=volatile" in hardening.journald_dropin()
+
+
+def test_log_upload_custom_port_and_scheme() -> None:
+    conf = hardening.render_log_upload("mac.nebula", port=12345, scheme="https")
+    assert "URL=https://mac.nebula:12345" in conf
+
+
 def test_directives_summary_covers_every_change() -> None:
     summary = hardening.directives()
     blob = "\n".join(summary)

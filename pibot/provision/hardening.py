@@ -31,6 +31,9 @@ RW_DIR = "/var/lib/pibot"
 RW_PARTLABEL = "pibotdata"
 JOURNALD_RUNTIME_MAX = "64M"
 
+# systemd-journal-remote's default listen port on the Mac (the log sink over Nebula).
+JOURNAL_UPLOAD_PORT = 19532
+
 
 def apply_cmdline(cmdline: str) -> str:
     """Return ``cmdline.txt`` with the NVMe/ASPM args appended (idempotent, single line)."""
@@ -58,6 +61,20 @@ def journald_dropin() -> str:
         "[Journal]\n"
         "Storage=volatile\n"
         f"RuntimeMaxUse={JOURNALD_RUNTIME_MAX}\n"
+    )
+
+
+def render_log_upload(host: str, *, port: int = JOURNAL_UPLOAD_PORT, scheme: str = "http") -> str:
+    """A ``/etc/systemd/journal-upload.conf`` pointing at the Mac's ``systemd-journal-remote``.
+
+    Logs stay ``Storage=volatile`` locally (see :func:`journald_dropin`) — they are streamed
+    off-box to ``host`` over the Nebula overlay rather than written to the NVMe, so a mobile
+    robot keeps useful logs without wearing the disk or losing them on a read-only root.
+    """
+    return (
+        "# PiBot: ship journald to the Mac over Nebula (logs stay volatile locally).\n"
+        "[Upload]\n"
+        f"URL={scheme}://{host}:{port}\n"
     )
 
 

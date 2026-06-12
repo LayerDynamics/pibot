@@ -127,6 +127,48 @@ class RobotTelemetry:
         return {name: dict(args) for name, args in self._latest.items()}
 
 
+def _no_policy_session() -> dict[str, Any]:
+    """The policy block when no autonomy session is attached (connected is None, not False)."""
+    return {"connected": None, "last_inference_ms": None, "chunk_age_ms": None}
+
+
+class PolicyLink:
+    """Tracks VLA policy-server link health for the telemetry snapshot (SPEC-2 M11 T11.1).
+
+    The closed-loop autonomy runner feeds this as it drives: :meth:`record_inference` each time
+    an action chunk arrives (link is up, with the round-trip latency), :meth:`mark_disconnected`
+    when the link drops. :meth:`snapshot` reports ``{connected, last_inference_ms, chunk_age_ms}``
+    where ``chunk_age_ms`` is how long since the last chunk — the staleness ``monitor`` alerts on.
+    """
+
+    def __init__(self, *, clock: Callable[[], float] | None = None) -> None:
+        import time
+
+        self._clock = clock or time.monotonic
+        self._connected: bool | None = None  # None = no session yet
+        self._last_inference_ms: float | None = None
+        self._last_chunk_t: float | None = None
+
+    def record_inference(self, inference_ms: float) -> None:
+        """A fresh action chunk arrived: the link is up and a new chunk resets the staleness."""
+        self._connected = True
+        self._last_inference_ms = float(inference_ms)
+        self._last_chunk_t = self._clock()
+
+    def mark_disconnected(self) -> None:
+        self._connected = False
+
+    def snapshot(self) -> dict[str, Any]:
+        chunk_age_ms = None
+        if self._last_chunk_t is not None:
+            chunk_age_ms = (self._clock() - self._last_chunk_t) * 1000.0
+        return {
+            "connected": self._connected,
+            "last_inference_ms": self._last_inference_ms,
+            "chunk_age_ms": chunk_age_ms,
+        }
+
+
 def assemble_snapshot(
     *,
     pi: dict[str, Any],
@@ -134,6 +176,14 @@ def assemble_snapshot(
     transport: dict[str, Any],
     safety: dict[str, Any],
     ts: float,
+    policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build the SPEC-1 §7 telemetry snapshot."""
-    return {"ts": ts, "pi": pi, "robot": robot, "transport": transport, "safety": safety}
+    """Build the telemetry snapshot (SPEC-1 §7 + SPEC-2 M11 policy-link block)."""
+    return {
+        "ts": ts,
+        "pi": pi,
+        "robot": robot,
+        "transport": transport,
+        "safety": safety,
+        "policy": policy if policy is not None else _no_policy_session(),
+    }

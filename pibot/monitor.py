@@ -18,7 +18,11 @@ from pibot.inventory import Inventory
 
 
 def check_thresholds(
-    snap: dict[str, Any], *, temp_warn: float = 80.0, battery_warn: float = 11.0
+    snap: dict[str, Any],
+    *,
+    temp_warn: float = 80.0,
+    battery_warn: float = 11.0,
+    policy_stale_ms: float = 1000.0,
 ) -> list[str]:
     """Return human-readable alert strings for any breached threshold (empty = OK)."""
     alerts: list[str] = []
@@ -37,6 +41,13 @@ def check_thresholds(
         alerts.append("transport down")
     if snap.get("safety", {}).get("estop"):
         alerts.append("e-stop latched")
+    # policy-link (only when an autonomy session is attached: connected is None -> no session)
+    policy = snap.get("policy") or {}
+    if policy.get("connected") is False:
+        alerts.append("policy down")
+    chunk_age = policy.get("chunk_age_ms")
+    if chunk_age is not None and chunk_age >= policy_stale_ms:
+        alerts.append(f"policy chunk stale {chunk_age}ms ≥ {policy_stale_ms}ms")
     return alerts
 
 
@@ -48,10 +59,13 @@ def render_snapshot(snap: dict[str, Any], alerts: list[str]) -> list[str]:
     disk = pi.get("disk", {})
     battery_v = robot.get("battery", {}).get("volts")
     estop = snap.get("safety", {}).get("estop")
+    policy = snap.get("policy") or {}
     lines = [
         f"temp {pi.get('temp_c')}°C  core {pi.get('core_volt')}V  "
         f"cpu {pi.get('cpu_pct')}%  mem {pi.get('mem_pct')}%  disk {disk.get('pct')}%",
         f"transport {tr.get('backend')} open={tr.get('open')}  battery {battery_v}V  estop={estop}",
+        f"policy connected={policy.get('connected')}  "
+        f"infer {policy.get('last_inference_ms')}ms  chunk_age {policy.get('chunk_age_ms')}ms",
     ]
     for alert in alerts:
         lines.append(f"  ALERT: {alert}")
@@ -68,6 +82,9 @@ _CSV_FIELDS = [
     "battery_v",
     "transport_open",
     "estop",
+    "policy_connected",
+    "policy_infer_ms",
+    "policy_chunk_age_ms",
 ]
 
 
@@ -77,6 +94,7 @@ def snapshot_csv_header() -> str:
 
 def snapshot_to_csv(snap: dict[str, Any]) -> str:
     pi = snap.get("pi", {})
+    policy = snap.get("policy") or {}
     row = [
         snap.get("ts"),
         pi.get("temp_c"),
@@ -87,6 +105,9 @@ def snapshot_to_csv(snap: dict[str, Any]) -> str:
         snap.get("robot", {}).get("battery", {}).get("volts"),
         snap.get("transport", {}).get("open"),
         snap.get("safety", {}).get("estop"),
+        policy.get("connected"),
+        policy.get("last_inference_ms"),
+        policy.get("chunk_age_ms"),
     ]
     return ",".join("" if v is None else str(v) for v in row)
 

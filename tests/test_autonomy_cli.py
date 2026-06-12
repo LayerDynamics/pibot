@@ -13,9 +13,10 @@ import argparse
 
 import pytest
 
-from pibot.cli import _autonomy_limits, build_parser, cmd_autonomy
-from pibot.config import Config
+from pibot.cli import _autonomy_limits, _resolve_prompt, build_parser, cmd_autonomy
+from pibot.config import TASK_PROMPTS, Config
 from pibot.control.safety import Limits
+from pibot.ml.closed_loop import ClosedLoopEnvironment
 
 
 def _parse(argv: list[str]) -> argparse.Namespace:
@@ -77,3 +78,43 @@ def test_run_without_dry_run_needs_a_policy_host(monkeypatch) -> None:
 class _Inv:
     def resolve(self, target: str) -> str:
         return "192.168.1.99"
+
+
+# ---- T11.3: per-task prompt support (FR-9) ------------------------------
+
+
+class _Cam:
+    def capture(self) -> str:
+        return "IMG"
+
+
+def test_task_shorthand_maps_to_canonical_prompt() -> None:
+    for task, expected in TASK_PROMPTS.items():
+        args = _parse(["autonomy", "pibot", "--run", "--task", task])
+        assert _resolve_prompt(args, Config()) == expected
+
+
+def test_explicit_prompt_overrides_task() -> None:
+    args = _parse(["autonomy", "pibot", "--run", "--task", "goal", "--prompt", "custom thing"])
+    assert _resolve_prompt(args, Config()) == "custom thing"
+
+
+def test_resolve_prompt_falls_back_to_config_prompt() -> None:
+    args = _parse(["autonomy", "pibot", "--run"])  # neither --task nor --prompt
+    assert _resolve_prompt(args, Config(prompt="from config")) == "from config"
+
+
+def test_only_the_three_tasks_are_accepted() -> None:
+    with pytest.raises(SystemExit):  # argparse rejects an unknown choice
+        _parse(["autonomy", "pibot", "--run", "--task", "fly"])
+
+
+def test_runner_forwards_prompt_into_every_observation() -> None:
+    # The resolved prompt must ride in each observation the policy sees.
+    env = ClosedLoopEnvironment(
+        _Cam(),
+        state_fn=lambda: [0.0, 0.0],
+        prompt=TASK_PROMPTS["follow"],
+        submit=lambda m: (True, "ok"),
+    )
+    assert env.get_observation()["prompt"] == "follow me"

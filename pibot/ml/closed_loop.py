@@ -82,7 +82,11 @@ def run_closed_loop(  # pragma: no cover - hardware: real transport + policy ser
 
     from agent.pibotd import build_transport
     from agent.safety import AgentSafety
+    from agent.telemetry import PolicyLink
+    from pibot.logging import get_logger
     from pibot.ml.state import VelocityState
+
+    log = get_logger("autonomy")
 
     transport = build_transport(cfg)
     transport.open()
@@ -101,14 +105,19 @@ def run_closed_loop(  # pragma: no cover - hardware: real transport + policy ser
         action_horizon=cfg.action_horizon,
     )
     period = 1.0 / control_hz if control_hz > 0 else 0.0
+    # policy-link health (T11.1) — logged by THIS runner process for the operator. It does not
+    # yet reach pibotd's /telemetry (a separate process); that feed is a pending integration.
+    link = PolicyLink()
     try:
         env.reset()  # begin from a known stop
         while not env.is_episode_complete():
             t0 = time.monotonic()
             action = policy.infer(env.get_observation())
+            link.record_inference((time.monotonic() - t0) * 1000.0)  # link up; chunk fresh
             env.apply_action(action)  # -> drive(v, ω) through the safety gate
             velocity.update(action)  # advance the state estimate for the next observation
             safety.tick()  # host deadman: stop if the loop is alive but no command was accepted
+            log.debug("autonomy step: policy=%s", link.snapshot())
             if period:
                 elapsed = time.monotonic() - t0
                 sleep_time = period - elapsed
