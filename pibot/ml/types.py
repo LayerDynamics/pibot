@@ -40,4 +40,9 @@ class Action:
     @classmethod
     def from_reply(cls, reply: dict[str, Any], step: int = 0) -> Action:
         """Slice step ``step`` out of a policy reply's ``actions`` chunk."""
-        return cls(vector=[float(x) for x in reply["actions"][step]])
+        actions = reply.get("actions")
+        if not actions:
+            raise ValueError("Policy reply is missing 'actions' or it is empty")
+        if step < 0 or step >= len(actions):
+            raise IndexError(f"Step {step} is out of bounds for actions of length {len(actions)}")
+        return cls(vector=[float(x) for x in actions[step]])
