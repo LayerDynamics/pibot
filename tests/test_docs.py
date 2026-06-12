@@ -33,6 +33,7 @@ LINTED = [RUNBOOKS_DIR / name for name in RUNBOOKS] + [
     REPO / "README.md",
     REPO / "docs" / "usage.md",
     REPO / "docs" / "hardware-e2e-signoff.md",
+    REPO / "docs" / "autonomy-e2e-signoff.md",
 ]
 
 

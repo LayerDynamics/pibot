@@ -48,6 +48,24 @@ Before any motion, prove the Pi can reach the server and the shapes/latency are 
 python -m tools.pipe_check --host 192.168.100.10 --port 8000 --rounds 20
 ```
 
+## 4. Multi-task fine-tune — all three behaviors (M11 T11.4)
+Once **follow** and **explore** demos are recorded ([data-collection.md](data-collection.md)),
+re-fine-tune over the *combined* dataset so one checkpoint serves all three prompts, then drive
+each prompt closed-loop:
+```bash
+PYTORCH_ENABLE_MPS_FALLBACK=1 \
+  python scripts/train.py --config pibot \
+    --dataset.repo_id pibot-multitask \
+    --norm_stats demos/norm_stats.json \
+    --output_dir checkpoints/pibot-pi05-multitask
+# serve it (step 2), then drive each behavior by prompt (M11 --task shorthand):
+pibot autonomy pibot --run --task goal     --max-speed 0.2   # "drive to the red ball"
+pibot autonomy pibot --run --task follow   --max-speed 0.2   # "follow me"
+pibot autonomy pibot --run --task explore  --max-speed 0.2   # "explore the room"
+```
+Watch for **catastrophic forgetting** (R-1): if fine-tuning for three regresses one, keep a
+per-task eval and, if needed, fall back to per-task checkpoints selected by prompt.
+
 ## Verify
 ```bash
 # 1. the checkpoint exists and carries the PiBot norm stats
@@ -64,3 +82,5 @@ python -m tools.pipe_check --host 192.168.100.10 --port 8000 --rounds 20
 | 2 | Server serves on the Nebula IP | reachable :8000 from the Pi | ⬜ pending | |
 | 3 | `pipe_check` round-trips | action dim = 2 | ⬜ pending | |
 | 4 | Inference p50 within budget | < control period (1/`control_hz`) | ⬜ pending | measured: — ms |
+| 5 | Multi-task fine-tune (T11.4) | one ckpt serves all three | ⬜ pending | host (OQ-7): — |
+| 6 | Each prompt drives its behavior | goal / follow / explore | ⬜ pending | per-task eval: — |

@@ -10,7 +10,7 @@
 | **Depends on** | M10 (closed-loop, single task) |
 | **Branch** | `m11-multitask-ops` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started (planned — no code yet) |
+| **Status** | Software shipped (T11.1–T11.3, T11.5, gate-green 626 passed); HIL pending hardware (T11.4 multi-task demos+fine-tune, T11.6 autonomy E2E sign-off — runbooks/sign-off written PENDING). **SPEC-2 software complete.** Known gap: T11.1's policy-link schema/render/threshold/CSV are done + unit-proven, but the live feed into pibotd's `/telemetry` is **not wired** (the autonomy runner is a separate process; `pibot monitor` shows `connected=None`). Live policy health is in the runner's logs. Resolving it needs the in-process-vs-standalone autonomy decision — see [autonomy-e2e-signoff.md](../autonomy-e2e-signoff.md) "Open decision". |
 
 **Goal:** All three prompted behaviors (drive-to-goal, follow, explore) plus the operability to run autonomy with confidence — policy-link telemetry, log-shipping, runbooks, and a hardware sign-off.
 **Architecture:** Extend telemetry with policy-link health; ship journald to the Mac over Nebula; per-task prompts; expand demos/fine-tune to cover follow + explore; write the autonomy runbooks.

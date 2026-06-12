@@ -107,3 +107,53 @@ def test_assemble_snapshot_schema() -> None:
     assert snap["robot"]["battery"]["volts"] == 12.4
     assert snap["transport"]["backend"] == "tcp"
     assert snap["safety"]["estop"] is False
+
+
+# ---- T11.1: policy-link telemetry ---------------------------------------
+
+
+def test_assemble_snapshot_defaults_to_no_policy_session() -> None:
+    # No autonomy session: the block is present but connected is None (not False) -> no alert.
+    snap = assemble_snapshot(pi={}, robot={}, transport={}, safety={}, ts=1.0)
+    assert snap["policy"] == {
+        "connected": None,
+        "last_inference_ms": None,
+        "chunk_age_ms": None,
+    }
+
+
+def test_assemble_snapshot_carries_policy_block() -> None:
+    policy = {"connected": True, "last_inference_ms": 42.0, "chunk_age_ms": 5.0}
+    snap = assemble_snapshot(pi={}, robot={}, transport={}, safety={}, ts=1.0, policy=policy)
+    assert snap["policy"] == policy
+
+
+def test_policy_link_records_inference_and_chunk_age() -> None:
+    clock = _Clock()
+    link = telemetry.PolicyLink(clock=clock)
+    assert link.snapshot()["connected"] is None  # no session yet
+
+    clock.t = 10.0
+    link.record_inference(42.0)  # a chunk arrived; link is up
+    snap = link.snapshot()
+    assert snap["connected"] is True
+    assert snap["last_inference_ms"] == 42.0
+    assert snap["chunk_age_ms"] == 0.0
+
+    clock.t = 10.25  # 250 ms later, no new chunk
+    assert link.snapshot()["chunk_age_ms"] == 250.0
+
+
+def test_policy_link_mark_disconnected() -> None:
+    link = telemetry.PolicyLink()
+    link.record_inference(10.0)
+    link.mark_disconnected()
+    assert link.snapshot()["connected"] is False
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.t = 0.0
+
+    def __call__(self) -> float:
+        return self.t

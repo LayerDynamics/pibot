@@ -16,7 +16,9 @@ def _inv() -> Inventory:
     return inv
 
 
-def _snap(temp=50.0, throttled_now=None, battery=12.4, open_=True, estop=False) -> dict:
+def _snap(
+    temp=50.0, throttled_now=None, battery=12.4, open_=True, estop=False, policy=None
+) -> dict:
     return {
         "ts": 1.0,
         "pi": {
@@ -30,6 +32,7 @@ def _snap(temp=50.0, throttled_now=None, battery=12.4, open_=True, estop=False) 
         "robot": {"battery": {"volts": battery}},
         "transport": {"backend": "tcp", "open": open_},
         "safety": {"estop": estop},
+        "policy": policy or {"connected": None, "last_inference_ms": None, "chunk_age_ms": None},
     }
 
 
@@ -68,17 +71,42 @@ def test_check_thresholds_breaches() -> None:
     assert any("e-stop" in a for a in monitor.check_thresholds(_snap(estop=True)))
 
 
+def test_no_policy_session_does_not_alert() -> None:
+    # connected is None (no autonomy running) -> not an alert, like transport open=None.
+    assert monitor.check_thresholds(_snap()) == []
+
+
+def test_check_thresholds_policy_down_and_stale_chunk() -> None:
+    down = _snap(policy={"connected": False, "last_inference_ms": 40.0, "chunk_age_ms": 10.0})
+    assert any("policy" in a and "down" in a for a in monitor.check_thresholds(down))
+
+    stale = _snap(policy={"connected": True, "last_inference_ms": 40.0, "chunk_age_ms": 5000.0})
+    assert any("stale" in a for a in monitor.check_thresholds(stale, policy_stale_ms=1000.0))
+
+    fresh = _snap(policy={"connected": True, "last_inference_ms": 40.0, "chunk_age_ms": 20.0})
+    assert monitor.check_thresholds(fresh, policy_stale_ms=1000.0) == []
+
+
 def test_render_snapshot_includes_key_values() -> None:
-    lines = "\n".join(monitor.render_snapshot(_snap(temp=63.0), []))
+    snap = _snap(
+        temp=63.0, policy={"connected": True, "last_inference_ms": 42.0, "chunk_age_ms": 5.0}
+    )
+    lines = "\n".join(monitor.render_snapshot(snap, []))
     assert "63" in lines
     assert "tcp" in lines
+    assert "policy" in lines and "42" in lines  # policy line rendered
 
 
 def test_csv_row_and_header() -> None:
     header = monitor.snapshot_csv_header()
-    row = monitor.snapshot_to_csv(_snap(temp=63.0))
+    snap = _snap(
+        temp=63.0, policy={"connected": True, "last_inference_ms": 42.0, "chunk_age_ms": 5.0}
+    )
+    row = monitor.snapshot_to_csv(snap)
     assert "temp_c" in header
+    assert "policy_connected" in header and "policy_infer_ms" in header
     assert "63.0" in row
+    assert "42.0" in row  # last_inference_ms in the row
 
 
 # ---- monitor loop --------------------------------------------------------
