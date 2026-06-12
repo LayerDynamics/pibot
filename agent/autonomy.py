@@ -83,12 +83,14 @@ class AutonomyController:
         return Message(msg.type, msg.seq, msg.name, {**msg.args, "v": v}, msg.reason)
 
     async def _drain(self) -> None:
-        for msg in self._outbox:
-            try:
-                await self._controller.submit(self._govern(msg))
-            except ControlRejected:
-                pass  # e-stop latched / rate-limited — the gate did its job; keep looping
-        self._outbox.clear()
+        try:
+            for msg in self._outbox:
+                try:
+                    await self._controller.submit(self._govern(msg))
+                except ControlRejected:
+                    pass  # e-stop latched / rate-limited — the gate did its job; keep looping
+        finally:
+            self._outbox.clear()
 
     async def step(self) -> None:
         """One control cycle: observe → infer (off-thread) → gated drive → advance state."""
