@@ -929,6 +929,8 @@ def _run_record(cfg: Config, inv: Inventory, target: str, prompt: str, out: str)
 def cmd_autonomy(args: argparse.Namespace) -> int:
     cfg, inv = _context()
     prompt = getattr(args, "prompt", None) or cfg.prompt
+    if not prompt:
+        raise UsageError("A task prompt is required; pass --prompt or set it in the config")
     if getattr(args, "open_loop", False):
         return _run_open_loop(cfg, inv, args.target, prompt)
     if getattr(args, "record", False):
