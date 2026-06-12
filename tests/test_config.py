@@ -45,6 +45,48 @@ def test_unknown_key_is_rejected(isolated_config_dir: str) -> None:
     assert "definitely_not_a_setting" in str(exc.value)
 
 
+# ---- T7.2: ML / autonomy config fields ------------------------------------
+
+
+def test_ml_config_defaults(isolated_config_dir: str) -> None:
+    cfg = load_config()
+    assert cfg.policy_host == ""
+    assert cfg.policy_port == 8000
+    assert cfg.action_horizon == 50
+    assert cfg.control_hz == 20
+    assert cfg.camera_device == "/dev/video0"
+    assert cfg.prompt == ""
+
+
+def test_ml_config_overrides(isolated_config_dir: str) -> None:
+    path = Path(isolated_config_dir) / "config.toml"
+    tomlio.dump(
+        {
+            "policy_host": "192.168.100.1",
+            "policy_port": 9000,
+            "action_horizon": 10,
+            "control_hz": 30,
+            "camera_device": "/dev/video1",
+            "prompt": "follow me",
+        },
+        path,
+    )
+    cfg = load_config()
+    assert cfg.policy_host == "192.168.100.1"
+    assert cfg.policy_port == 9000
+    assert cfg.action_horizon == 10
+    assert cfg.control_hz == 30
+    assert cfg.camera_device == "/dev/video1"
+    assert cfg.prompt == "follow me"
+
+
+def test_ml_config_wrong_type_rejected(isolated_config_dir: str) -> None:
+    path = Path(isolated_config_dir) / "config.toml"
+    tomlio.dump({"action_horizon": "fifty"}, path)
+    with pytest.raises(ConfigError):
+        load_config()
+
+
 def test_wrong_type_is_rejected(isolated_config_dir: str) -> None:
     path = Path(isolated_config_dir) / "config.toml"
     tomlio.dump({"teleop_rate_hz": "fast"}, path)

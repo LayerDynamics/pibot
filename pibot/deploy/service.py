@@ -22,9 +22,21 @@ SERVICE_NAME = "pibotd"
 UNIT_PATH = f"/etc/systemd/system/{SERVICE_NAME}.service"
 
 
-def render_unit(*, remote_base: str, venv: str, user: str = "pi") -> str:
-    """Render the systemd unit for pibotd (venv exec, restart-on-failure, journald)."""
+def render_unit(
+    *, remote_base: str, venv: str, user: str = "pi", watchdog_sec: int | None = None
+) -> str:
+    """Render the systemd unit for pibotd (venv exec, restart-on-failure, journald).
+
+    Passing ``watchdog_sec`` switches the unit to ``Type=notify`` with a systemd
+    application watchdog: pibotd must ping ``sd_notify("WATCHDOG=1")`` within the window
+    or systemd restarts it (``Restart=on-watchdog``), rate-limited by ``StartLimitBurst``.
+    """
     base = remote_base.rstrip("/")
+    if watchdog_sec is not None:
+        service_type, restart = "notify", "on-watchdog"
+        watchdog = f"WatchdogSec={watchdog_sec}s\nStartLimitIntervalSec=60\nStartLimitBurst=5\n"
+    else:
+        service_type, restart, watchdog = "simple", "on-failure", ""
     return (
         "[Unit]\n"
         "Description=PiBot robot control agent (pibotd)\n"
@@ -32,14 +44,55 @@ def render_unit(*, remote_base: str, venv: str, user: str = "pi") -> str:
         "Wants=network-online.target\n"
         "\n"
         "[Service]\n"
-        "Type=simple\n"
+        f"Type={service_type}\n"
         f"User={user}\n"
         f"WorkingDirectory={base}/current\n"
         f"ExecStart={venv}/bin/python -m agent\n"
-        "Restart=on-failure\n"
+        f"Restart={restart}\n"
         "RestartSec=2\n"
+        f"{watchdog}"
         "StandardOutput=journal\n"
         "StandardError=journal\n"
+        "\n"
+        "[Install]\n"
+        "WantedBy=multi-user.target\n"
+    )
+
+
+def render_watchdog_conf(runtime_sec: int = 14, reboot: str = "2min") -> str:
+    """A ``/etc/systemd/system.conf.d`` drop-in arming the **hardware** watchdog.
+
+    ``RuntimeWatchdogSec`` MUST be ≤ 15 s or the kernel silently disables it (research /
+    systemd #27427); a frozen kernel then reboots after ``RebootWatchdogSec``.
+    """
+    runtime_sec = min(runtime_sec, 15)
+    return (
+        "# PiBot: arm the BCM hardware watchdog (a frozen kernel reboots itself).\n"
+        "[Manager]\n"
+        f"RuntimeWatchdogSec={runtime_sec}\n"
+        f"RebootWatchdogSec={reboot}\n"
+    )
+
+
+def render_nebula_unit(
+    *, config: str = "/etc/nebula/config.yml", binary: str = "/usr/local/bin/nebula"
+) -> str:
+    """The Nebula overlay systemd unit — always-restart, unprivileged (no full root)."""
+    return (
+        "[Unit]\n"
+        "Description=Nebula overlay network (PiBot)\n"
+        "Wants=basic.target network-online.target\n"
+        "After=basic.target network.target network-online.target\n"
+        "\n"
+        "[Service]\n"
+        f"ExecStart={binary} -config {config}\n"
+        "ExecReload=/bin/kill -HUP $MAINPID\n"
+        "SyslogIdentifier=nebula\n"
+        "Restart=always\n"
+        "RestartSec=2\n"
+        # run unprivileged: the tun device needs only CAP_NET_ADMIN, not full root.
+        "AmbientCapabilities=CAP_NET_ADMIN\n"
+        "CapabilityBoundingSet=CAP_NET_ADMIN\n"
         "\n"
         "[Install]\n"
         "WantedBy=multi-user.target\n"

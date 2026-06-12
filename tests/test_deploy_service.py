@@ -16,6 +16,37 @@ def test_render_unit_has_venv_exec_restart_and_journald() -> None:
     assert "[Install]" in unit and "WantedBy=multi-user.target" in unit
 
 
+# ---- T7.4: hardened renderers (app watchdog, hardware watchdog, Nebula) ----
+
+
+def test_render_unit_default_is_unchanged_simple() -> None:
+    unit = service.render_unit(remote_base="/opt/pibot", venv="/opt/pibot/venv")
+    assert "Type=simple" in unit
+    assert "WatchdogSec" not in unit  # opt-in only
+
+
+def test_render_unit_app_watchdog_mode() -> None:
+    unit = service.render_unit(remote_base="/opt/pibot", venv="/opt/pibot/venv", watchdog_sec=30)
+    assert "Type=notify" in unit  # sd_notify-driven
+    assert "WatchdogSec=30s" in unit
+    assert "Restart=on-watchdog" in unit
+    assert "StartLimitBurst=" in unit
+
+
+def test_render_watchdog_conf_within_hardware_limit() -> None:
+    conf = service.render_watchdog_conf()
+    assert "[Manager]" in conf
+    assert "RuntimeWatchdogSec=14" in conf  # <=15s or it silently disables (research)
+    assert "RebootWatchdogSec=" in conf
+
+
+def test_render_nebula_unit_restart_always_unprivileged() -> None:
+    unit = service.render_nebula_unit(config="/etc/nebula/config.yml")
+    assert "Restart=always" in unit
+    assert "ExecStart=" in unit and "/etc/nebula/config.yml" in unit
+    assert "CAP_NET_ADMIN" in unit  # unprivileged: tun device without full root
+
+
 def test_venv_commands_create_and_install_requirements() -> None:
     cmds = service.venv_commands(remote_base="/opt/pibot", venv="/opt/pibot/venv")
     joined = "\n".join(cmds)

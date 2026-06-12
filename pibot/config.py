@@ -42,6 +42,14 @@ class Config:
     agent_bind: str = "127.0.0.1:8787"
     agent_token_path: str = ""
     scan_timeout: float = 1.0
+    # Autonomy / VLA policy client (SPEC-2 / M7) — the on-robot client connects to a
+    # remote policy server (the M4 Max) and drives at control_hz using action chunks.
+    policy_host: str = ""
+    policy_port: int = 8000
+    action_horizon: int = 50
+    control_hz: int = 20
+    camera_device: str = "/dev/video0"
+    prompt: str = ""
 
 
 # field name -> accepted types. ``(float, int)`` fields accept an int literal and
@@ -69,6 +77,12 @@ _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     "agent_bind": (str,),
     "agent_token_path": (str,),
     "scan_timeout": (float, int),
+    "policy_host": (str,),
+    "policy_port": (int,),
+    "action_horizon": (int,),
+    "control_hz": (int,),
+    "camera_device": (str,),
+    "prompt": (str,),
 }
 
 
