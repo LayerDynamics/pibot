@@ -30,7 +30,9 @@ def compute(frames: list[dict[str, Any]]) -> dict[str, dict[str, list[float]]]:
 
 
 def save(stats: dict[str, Any], path: str | Path) -> None:
-    Path(path).write_text(json.dumps(stats, indent=2), encoding="utf-8")
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(stats, indent=2), encoding="utf-8")
 
 
 def load(path: str | Path) -> dict[str, Any]:
