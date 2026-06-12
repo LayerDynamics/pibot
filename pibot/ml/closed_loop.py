@@ -101,12 +101,16 @@ def run_closed_loop(  # pragma: no cover - hardware: real transport + policy ser
     try:
         env.reset()  # begin from a known stop
         while not env.is_episode_complete():
+            t0 = time.monotonic()
             action = policy.infer(env.get_observation())
             env.apply_action(action)  # -> drive(v, ω) through the safety gate
             velocity.update(action)  # advance the state estimate for the next observation
             safety.tick()  # host deadman: stop if the loop is alive but no command was accepted
             if period:
-                time.sleep(period)
+                elapsed = time.monotonic() - t0
+                sleep_time = period - elapsed
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
     finally:
         env.reset()  # always leave the robot stopped
         transport.close()
