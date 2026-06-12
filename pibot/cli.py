@@ -21,6 +21,7 @@ from pibot.connection import commands, keys, transfer, tunnel
 from pibot.errors import PibotError, UsageError
 from pibot.inventory import Inventory, InventoryRecord
 from pibot.logging import configure_logging, get_logger
+from pibot.provision import clone, eeprom, firmware, flash
 
 _log = get_logger("cli")
 
@@ -166,6 +167,92 @@ def build_parser() -> argparse.ArgumentParser:
     p_tunnel.add_argument("target")
     p_tunnel.add_argument("spec", help="LPORT:HOST:RPORT or LPORT:RPORT")
     p_tunnel.set_defaults(func=cmd_tunnel)
+
+    # ---- provisioning & flashing ----
+    p_flash = sub.add_parser("flash", parents=[g], help="write an OS image to the Pi")
+    flash_dest = p_flash.add_mutually_exclusive_group(required=True)
+    flash_dest.add_argument(
+        "--target",
+        choices=["nvme", "sd"],
+        help="reflash the Pi's onboard drive via rpiboot (hold power button)",
+    )
+    flash_dest.add_argument("--device", help="write to a removable device node, e.g. /dev/disk4")
+    p_flash.add_argument("--image", required=True, help="image file or URL")
+    p_flash.add_argument("--sha256", help="expected image SHA-256")
+    p_flash.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        default=argparse.SUPPRESS,
+        help="print the commands, write nothing",
+    )
+    p_flash.add_argument(
+        "--confirm",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="required to actually write",
+    )
+    p_flash.add_argument("--hostname", help="hostname for the flashed OS (default: pibot)")
+    p_flash.add_argument("--username", help="first user (default: ubuntu for --os ubuntu, else pi)")
+    p_flash.add_argument(
+        "--os",
+        choices=["ubuntu", "rpi-os"],
+        dest="os_flavor",
+        help="OS flavor: cloud-init (ubuntu) vs custom.toml (rpi-os)",
+    )
+    p_flash.add_argument(
+        "--authorized-key",
+        action="append",
+        dest="authorized_keys",
+        default=argparse.SUPPRESS,
+        help="SSH public key to authorize on first boot (repeatable)",
+    )
+    p_flash.add_argument(
+        "--authorized-key-file",
+        dest="key_file",
+        default=argparse.SUPPRESS,
+        help="read a public key from a file, e.g. ~/.ssh/id_ed25519.pub",
+    )
+    p_flash.set_defaults(func=cmd_flash)
+
+    p_eeprom = sub.add_parser("eeprom", parents=[g, t], help="manage the Pi bootloader EEPROM")
+    p_eeprom.add_argument("target")
+    p_eeprom.add_argument("action", choices=["status", "update", "config", "boot-order"])
+    p_eeprom.add_argument("value", nargs="?", help="BOOT_ORDER value for boot-order, e.g. 0xf416")
+    p_eeprom.add_argument(
+        "--confirm",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="required for update / boot-order",
+    )
+    p_eeprom.set_defaults(func=cmd_eeprom)
+
+    p_prov = sub.add_parser("provision", parents=[g], help="clone/restore the Pi NVMe")
+    prov_sub = p_prov.add_subparsers(dest="action", required=True)
+    p_clone = prov_sub.add_parser("clone", parents=[g, t], help="back up the Pi NVMe to an image")
+    p_clone.add_argument("target")
+    p_clone.add_argument("--to", required=True, dest="to_file", help="output image (.img.gz)")
+    p_clone.add_argument("--device", default="/dev/nvme0n1", help="source device on the Pi")
+    p_clone.add_argument("--shrink", action="store_true", default=argparse.SUPPRESS)
+    p_clone.set_defaults(func=cmd_provision_clone)
+    p_restore = prov_sub.add_parser("restore", parents=[g, t], help="restore an image to the Pi")
+    p_restore.add_argument("target")
+    p_restore.add_argument("--from", required=True, dest="from_file", help="image to restore")
+    p_restore.add_argument("--device", default="/dev/nvme0n1", help="target device on the Pi")
+    p_restore.add_argument("--confirm", action="store_true", default=argparse.SUPPRESS)
+    p_restore.set_defaults(func=cmd_provision_restore)
+
+    p_fw = sub.add_parser("firmware", parents=[g], help="build/flash Arduino firmware")
+    fw_sub = p_fw.add_subparsers(dest="action", required=True)
+    p_fw_build = fw_sub.add_parser("build", parents=[g], help="compile a sketch")
+    p_fw_build.add_argument("sketch")
+    p_fw_build.add_argument("--fqbn", required=True, help="e.g. arduino:avr:uno")
+    p_fw_build.set_defaults(func=cmd_firmware_build)
+    p_fw_flash = fw_sub.add_parser("flash", parents=[g], help="upload a sketch")
+    p_fw_flash.add_argument("sketch")
+    p_fw_flash.add_argument("--fqbn", required=True, help="e.g. arduino:avr:uno")
+    p_fw_flash.add_argument("--port", required=True, help="e.g. /dev/ttyACM0")
+    p_fw_flash.set_defaults(func=cmd_firmware_flash)
 
     return parser
 
@@ -350,3 +437,95 @@ def cmd_tunnel(args: argparse.Namespace) -> int:
         explicit_user=getattr(args, "user", None),
         identity=getattr(args, "identity", None),
     )
+
+
+# ---- provisioning & flashing ---------------------------------------------
+
+
+def _build_first_boot(args: argparse.Namespace) -> flash.FirstBootSpec | None:
+    keys = list(getattr(args, "authorized_keys", None) or [])
+    key_file = getattr(args, "key_file", None)
+    if key_file:
+        keys.append(Path(key_file).expanduser().read_text(encoding="utf-8").strip())
+    hostname = getattr(args, "hostname", None)
+    username = getattr(args, "username", None)
+    flavor = getattr(args, "os_flavor", None)
+    if not (keys or hostname or username or flavor):
+        return None
+    if not keys:
+        raise UsageError(
+            "first-boot config requested but no key; pass --authorized-key/--authorized-key-file"
+        )
+    default_user = "ubuntu" if flavor == "ubuntu" else "pi"
+    return flash.FirstBootSpec(
+        hostname=hostname or "pibot",
+        username=username or default_user,
+        ssh_authorized_keys=keys,
+        flavor=flavor,
+    )
+
+
+def cmd_flash(args: argparse.Namespace) -> int:
+    dry_run = getattr(args, "dry_run", False)
+    if not dry_run and not getattr(args, "confirm", False):
+        raise UsageError("flashing is destructive; pass --confirm (or --dry-run to preview)")
+    sha256 = getattr(args, "sha256", None)
+    first_boot = _build_first_boot(args)
+    if getattr(args, "device", None):
+        return flash.flash_to_device(
+            args.image, args.device, sha256=sha256, dry_run=dry_run, first_boot=first_boot
+        )
+    return flash.flash_via_rpiboot(
+        args.image, sha256=sha256, dry_run=dry_run, first_boot=first_boot
+    )
+
+
+def cmd_eeprom(args: argparse.Namespace) -> int:
+    cfg, inv = _context()
+    user = getattr(args, "user", None)
+    confirm = getattr(args, "confirm", False)
+    if args.action == "status":
+        return eeprom.status(args.target, cfg=cfg, inventory=inv, user=user)
+    if args.action == "config":
+        return eeprom.show_config(args.target, cfg=cfg, inventory=inv, user=user)
+    if args.action == "update":
+        return eeprom.update(args.target, cfg=cfg, inventory=inv, user=user, confirm=confirm)
+    if not args.value:
+        raise UsageError("boot-order requires a value, e.g. 0xf416")
+    return eeprom.set_boot_order(
+        args.target, args.value, cfg=cfg, inventory=inv, user=user, confirm=confirm
+    )
+
+
+def cmd_provision_clone(args: argparse.Namespace) -> int:
+    cfg, inv = _context()
+    return clone.clone(
+        args.target,
+        args.to_file,
+        cfg=cfg,
+        inventory=inv,
+        user=getattr(args, "user", None),
+        device=args.device,
+        shrink=getattr(args, "shrink", False),
+    )
+
+
+def cmd_provision_restore(args: argparse.Namespace) -> int:
+    cfg, inv = _context()
+    return clone.restore(
+        args.target,
+        args.from_file,
+        cfg=cfg,
+        inventory=inv,
+        user=getattr(args, "user", None),
+        device=args.device,
+        confirm=getattr(args, "confirm", False),
+    )
+
+
+def cmd_firmware_build(args: argparse.Namespace) -> int:
+    return firmware.build(args.sketch, fqbn=args.fqbn)
+
+
+def cmd_firmware_flash(args: argparse.Namespace) -> int:
+    return firmware.flash(args.sketch, fqbn=args.fqbn, port=args.port)
