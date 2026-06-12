@@ -185,5 +185,5 @@ def assemble_snapshot(
         "robot": robot,
         "transport": transport,
         "safety": safety,
-        "policy": policy or _no_policy_session(),
+        "policy": policy if policy is not None else _no_policy_session(),
     }
