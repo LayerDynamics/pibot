@@ -18,8 +18,11 @@ from pathlib import Path
 from pibot import agent_ctl, discovery
 from pibot import monitor as monitor_mod
 from pibot.config import Config, load_config
-from pibot.connection import commands, keys, transfer, tunnel
+from pibot.connection import commands, keys, sshcmd, transfer, tunnel, user
 from pibot.control import oneshot
+from pibot.control.sequence import load_sequence
+from pibot.deploy import service as deploy_service
+from pibot.deploy import sync as deploy_sync
 from pibot.errors import PibotError, UsageError
 from pibot.inventory import Inventory, InventoryRecord
 from pibot.logging import configure_logging, get_logger
@@ -301,6 +304,32 @@ def build_parser() -> argparse.ArgumentParser:
         if action == "logs":
             ap.add_argument("--lines", type=int, default=50)
         ap.set_defaults(func=cmd_agent, agent_action=action)
+
+    # ---- deploy / play ----
+    p_deploy = sub.add_parser("deploy", parents=[g, t], help="deploy/restart pibotd on the Pi")
+    p_deploy.add_argument("target")
+    p_deploy.add_argument("--base", default=argparse.SUPPRESS, help="remote install base dir")
+    p_deploy.add_argument("--src", default=argparse.SUPPRESS, help="payload root (default: repo)")
+    p_deploy.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        default=argparse.SUPPRESS,
+        help="compute the change set, write nothing",
+    )
+    p_deploy.add_argument(
+        "--rollback",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="restore the previous release and restart",
+    )
+    p_deploy.set_defaults(func=cmd_deploy)
+
+    p_play = sub.add_parser("play", parents=[g, t], help="run a scripted motion sequence")
+    p_play.add_argument("target")
+    p_play.add_argument("sequence", help="motion sequence file (.yaml/.json)")
+    p_play.add_argument("--rate", type=float, default=argparse.SUPPRESS, help="keepalive Hz")
+    p_play.set_defaults(func=cmd_play)
 
     return parser
 
@@ -662,12 +691,79 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 
 def cmd_agent(args: argparse.Namespace) -> int:
     cfg, inv = _context()
-    user = getattr(args, "user", None)
+    user_arg = getattr(args, "user", None)
     action = args.agent_action
     if action == "status":
-        return agent_ctl.status(args.target, cfg=cfg, inventory=inv, user=user)
+        return agent_ctl.status(args.target, cfg=cfg, inventory=inv, user=user_arg)
     if action == "start":
-        return agent_ctl.start(args.target, cfg=cfg, inventory=inv, user=user)
+        return agent_ctl.start(args.target, cfg=cfg, inventory=inv, user=user_arg)
     if action == "stop":
-        return agent_ctl.stop(args.target, cfg=cfg, inventory=inv, user=user)
-    return agent_ctl.logs(args.target, cfg=cfg, inventory=inv, user=user, lines=args.lines)
+        return agent_ctl.stop(args.target, cfg=cfg, inventory=inv, user=user_arg)
+    return agent_ctl.logs(args.target, cfg=cfg, inventory=inv, user=user_arg, lines=args.lines)
+
+
+# ---- deploy / play -------------------------------------------------------
+
+
+def _repo_root() -> Path:
+    """The source tree to deploy (the package's parent — the repo checkout)."""
+    return Path(__file__).resolve().parents[1]
+
+
+def cmd_deploy(args: argparse.Namespace) -> int:
+    cfg, inv = _context()
+    address = inv.resolve(args.target)
+    login = user.resolve_user(address, cfg, explicit=getattr(args, "user", None))
+    destination = sshcmd.destination(address, login)
+    identity = getattr(args, "identity", None) or cfg.identity
+    base = getattr(args, "base", None) or cfg.deploy_base
+    port = int(cfg.agent_bind.rsplit(":", 1)[1])
+
+    if getattr(args, "rollback", False):
+        return deploy_service.rollback(destination, remote_base=base, port=port, identity=identity)
+
+    src = getattr(args, "src", None) or str(_repo_root())
+    dry_run = getattr(args, "dry_run", False)
+    result = deploy_sync.deploy(
+        destination,
+        src_root=src.rstrip("/") + "/",
+        remote_base=base,
+        identity=identity,
+        dry_run=dry_run,
+    )
+    for path in result.changed:
+        print(f"  changed: {path}")
+    print(f"release {result.release} ({len(result.changed)} file(s) changed)")
+    if dry_run:
+        print("dry run — agent not restarted")
+        return 0
+    return deploy_service.install(
+        destination, remote_base=base, port=port, identity=identity, user=login
+    )
+
+
+def _drive_sequence(cfg: Config, inv: Inventory, target: str, steps: list, rate: float) -> int:
+    import asyncio
+
+    from agent.auth import load_token
+    from pibot.control.client import AgentClient
+    from pibot.control.sequence import play
+
+    async def _run() -> int:
+        client = AgentClient(
+            _agent_base_url(cfg, inv, target), token=load_token(cfg.agent_token_path)
+        )
+        await client.connect()
+        try:
+            return await play(client, steps, keepalive_hz=rate)
+        finally:
+            await client.close()
+
+    return asyncio.run(_run())
+
+
+def cmd_play(args: argparse.Namespace) -> int:
+    cfg, inv = _context()
+    steps = load_sequence(Path(args.sequence))
+    rate = getattr(args, "rate", None) or cfg.teleop_rate_hz
+    return _drive_sequence(cfg, inv, args.target, steps, rate)

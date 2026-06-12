@@ -27,6 +27,24 @@ def build_transport(cfg: Config) -> Transport:
         from pibot.transport.serial import SerialTransport
 
         return SerialTransport(cfg.serial_port, cfg.serial_baud)
+    if cfg.transport == "uart":
+        from pibot.transport.serial import uart_transport
+
+        return uart_transport(cfg.serial_baud)
+    if cfg.transport == "rfcomm":
+        from pibot.transport.rfcomm import RfcommTransport
+
+        return RfcommTransport(
+            baud=cfg.serial_baud, address=cfg.rfcomm_address, channel=cfg.rfcomm_channel
+        )
+    if cfg.transport == "ble":
+        from pibot.transport.ble import BleTransport
+
+        return BleTransport(cfg.ble_address)
+    if cfg.transport == "i2c":
+        from pibot.transport.i2c import I2CTransport
+
+        return I2CTransport(cfg.i2c_bus, cfg.i2c_address)
     if cfg.transport == "responder":
         from pibot.transport.responder import ResponderTransport
 

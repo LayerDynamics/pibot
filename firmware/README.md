@@ -50,3 +50,19 @@ pibot firmware build firmware/pibot_arduino --fqbn arduino:avr:uno
 
 Once flashed and on Wi-Fi, the ESP32 prints its IP; the Pi connects with
 `TcpTransport(<esp32-ip>, 3333)`.
+
+## Wired transports — GPIO-UART & I²C level requirements
+
+The Pi's GPIO pins are **3.3 V tolerant only**. Two wired transports share this hazard:
+
+- **GPIO-UART** (`SerialTransport("/dev/serial0")`, `uart_transport()`): enable the
+  primary UART with `enable_uart=1` in `/boot/firmware/config.txt` and remove
+  `console=serial0,115200` from `cmdline.txt` so Linux doesn't hold the port. Cross
+  TX↔RX and share ground.
+- **I²C** (`I2CTransport(bus=1, address=0x08)`): the microcontroller is an I²C slave;
+  the Pi is the sole master. SDA/SCL on GPIO `2`/`3`.
+
+**Level shifter required for 5 V devices.** A 3.3 V microcontroller (ESP32) wires
+directly. A 5 V device (classic Arduino Uno) **must** go through a bidirectional
+3.3 V ↔ 5 V level shifter on the UART/I²C lines — driving 5 V into a Pi GPIO pin can
+permanently damage the SoC. I²C additionally needs its pull-ups to 3.3 V, not 5 V.
