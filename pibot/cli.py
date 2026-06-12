@@ -374,6 +374,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="stream observations + log actions, NO actuation (bring-up gate)",
     )
     p_auto.add_argument("--prompt", default=argparse.SUPPRESS, help="task prompt for the policy")
+    p_auto.add_argument(
+        "--record",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="teleop-record demonstrations to a LeRobot dataset",
+    )
+    p_auto.add_argument(
+        "--out", default=argparse.SUPPRESS, help="dataset output dir (with --record)"
+    )
     p_auto.set_defaults(func=cmd_autonomy)
 
     return parser
@@ -879,25 +888,20 @@ def _run_open_loop(cfg: Config, inv: Inventory, target: str, prompt: str) -> int
     """Open-loop autonomy: camera + telemetry -> policy server, log actions, NO actuation."""
     from pibot.ml.camera import Camera
     from pibot.ml.openloop import run_open_loop
+    from pibot.ml.state import VelocityState
 
     address = inv.resolve(target)
     camera = Camera(cfg.camera_device)
     camera.open()
 
-    def state_fn() -> list[float]:
-        # robot state vector for the observation (OQ-2: which telemetry fields) — wired to
-        # the agent's live telemetry on the robot; the open-loop run reads it each step.
-        from agent.telemetry import read_system_stats
+    # state = the last commanded velocity [v, w] (OQ-2); updated from each step's action.
+    velocity = VelocityState()
 
-        stats = read_system_stats() or {}
-        cpu = stats.get("cpu_pct")
-        mem = stats.get("mem_pct")
-        return [
-            float(cpu) if cpu is not None else 0.0,
-            float(mem) if mem is not None else 0.0,
-        ]
+    def state_fn() -> list[float]:
+        return velocity.vector()
 
     def log_step(obs: dict | None, action: dict) -> None:
+        velocity.update(action)
         _log.info("open-loop step: prompt=%r action=%s", prompt, action)
 
     cfg.policy_host = cfg.policy_host or address
@@ -908,9 +912,26 @@ def _run_open_loop(cfg: Config, inv: Inventory, target: str, prompt: str) -> int
         camera.close()
 
 
+def _run_record(cfg: Config, inv: Inventory, target: str, prompt: str, out: str) -> int:
+    """Teleop-record demonstrations (obs + action) to a LeRobot dataset."""
+    from pibot.ml.camera import Camera
+    from pibot.ml.record import run_record
+
+    inv.resolve(target)
+    camera = Camera(cfg.camera_device)
+    camera.open()
+    try:
+        return run_record(cfg, camera, prompt, out)
+    finally:
+        camera.close()
+
+
 def cmd_autonomy(args: argparse.Namespace) -> int:
     cfg, inv = _context()
     prompt = getattr(args, "prompt", None) or cfg.prompt
     if getattr(args, "open_loop", False):
         return _run_open_loop(cfg, inv, args.target, prompt)
-    raise UsageError("closed-loop autonomy is gated to M10; run with --open-loop for now")
+    if getattr(args, "record", False):
+        out = getattr(args, "out", None) or "demos"
+        return _run_record(cfg, inv, args.target, prompt, out)
+    raise UsageError("closed-loop autonomy is gated to M10; use --open-loop or --record")

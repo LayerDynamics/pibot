@@ -24,6 +24,7 @@ RUNBOOKS = [
     "nebula-overlay.md",
     "autonomy-runtime.md",
     "autonomy-bringup.md",
+    "data-collection.md",
 ]
 
 # Every markdown doc we own and lint (runbooks + top-level user docs).

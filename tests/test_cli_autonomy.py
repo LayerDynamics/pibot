@@ -38,5 +38,18 @@ def test_open_loop_falls_back_to_config_prompt(monkeypatch) -> None:
 
 def test_autonomy_requires_open_loop_until_m10(monkeypatch) -> None:
     _ctx(monkeypatch)
-    # closed-loop actuation is gated to M10; without --open-loop this is a usage error.
+    # closed-loop actuation is gated to M10; without --open-loop/--record this is a usage error.
     assert cli.main(["autonomy", "esp32"]) == 2
+
+
+def test_record_dispatch_passes_target_prompt_and_out(monkeypatch) -> None:
+    seen: dict = {}
+    _ctx(monkeypatch, Config(prompt="default"))
+    monkeypatch.setattr(
+        cli,
+        "_run_record",
+        lambda cfg, inv, target, prompt, out: seen.update(t=target, p=prompt, o=out) or 0,
+    )
+    rc = cli.main(["autonomy", "esp32", "--record", "--prompt", "follow me", "--out", "/tmp/demos"])
+    assert rc == 0
+    assert seen == {"t": "esp32", "p": "follow me", "o": "/tmp/demos"}
