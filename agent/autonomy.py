@@ -112,6 +112,11 @@ class AutonomyController:
                     await asyncio.sleep(self._period)
         except asyncio.CancelledError:
             pass
+        finally:
+            with contextlib.suppress(Exception):
+                self._env.reset()
+                await self._drain()
+            self._link.mark_disconnected()
 
     def start(self) -> None:
         if self.running:
