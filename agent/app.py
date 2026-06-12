@@ -19,16 +19,22 @@ import contextlib
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
 from agent import __version__
 from agent.auth import is_loopback, token_ok
 from agent.control import ControlRejected, TransportController
-from agent.telemetry import RobotTelemetry, VcgencmdRun, assemble_snapshot, pi_health
+from agent.telemetry import PolicyLink, RobotTelemetry, VcgencmdRun, assemble_snapshot, pi_health
 from pibot.protocol.codec import Message, MessageType
 from pibot.transport.base import Transport
+
+if TYPE_CHECKING:
+    from agent.autonomy import AutonomyController
+
+# Builds the (camera, policy) for an autonomy session from the agent's autonomy config.
+AutonomyFactory = Callable[[dict[str, Any]], "tuple[Any, Any]"]
 
 
 @dataclass
@@ -41,9 +47,13 @@ class AgentState:
     started: float = field(default_factory=time.monotonic)
     controller: TransportController | None = None
     robot: RobotTelemetry = field(default_factory=RobotTelemetry)
+    policy_link: PolicyLink = field(default_factory=PolicyLink)
     vcgencmd_run: VcgencmdRun | None = None
     config: dict[str, Any] = field(default_factory=dict)
     telemetry_interval: float = 0.1
+    autonomy: AutonomyController | None = None
+    autonomy_config: dict[str, Any] = field(default_factory=dict)
+    autonomy_factory: AutonomyFactory | None = None
 
 
 STATE: web.AppKey[AgentState] = web.AppKey("pibot_state", AgentState)
@@ -89,7 +99,12 @@ async def _snapshot(state: AgentState) -> dict[str, Any]:
     transport = ctrl.transport_info if ctrl else {}
     safety = {"estop": ctrl.latched if ctrl else False}
     return assemble_snapshot(
-        pi=pi, robot=state.robot.snapshot(), transport=transport, safety=safety, ts=time.time()
+        pi=pi,
+        robot=state.robot.snapshot(),
+        transport=transport,
+        safety=safety,
+        ts=time.time(),
+        policy=state.policy_link.snapshot(),
     )
 
 
@@ -158,6 +173,52 @@ async def handle_estop(request: web.Request) -> web.Response:
     return web.json_response({"estop": True})
 
 
+async def handle_autonomy_start(request: web.Request) -> web.Response:
+    """Start in-process closed-loop autonomy, driving through the shared safety gate."""
+    state = request.app[STATE]
+    if state.controller is None:
+        raise web.HTTPServiceUnavailable(text="no transport controller")
+    if state.autonomy is not None and state.autonomy.running:
+        raise web.HTTPConflict(text="autonomy already running")
+    body: dict[str, Any] = {}
+    if request.can_read_body:
+        with contextlib.suppress(ValueError):  # JSONDecodeError subclasses ValueError
+            body = await request.json()
+
+    from agent.autonomy import AutonomyController, build_runtime  # lazy: keep ml off import path
+
+    factory = state.autonomy_factory or build_runtime
+    camera, policy = factory(dict(state.autonomy_config))
+    auto = AutonomyController(
+        state.controller,
+        state.policy_link,
+        camera=camera,
+        policy=policy,
+        prompt=str(body.get("prompt", "")),
+        control_hz=float(body.get("control_hz", state.autonomy_config.get("control_hz", 20))),
+        max_speed=body.get("max_speed"),
+    )
+    auto.start()
+    state.autonomy = auto
+    return web.json_response({"autonomy": "started", "prompt": body.get("prompt", "")}, status=201)
+
+
+async def handle_autonomy_status(request: web.Request) -> web.Response:
+    state = request.app[STATE]
+    auto = state.autonomy
+    return web.json_response(
+        {"running": bool(auto and auto.running), "policy": state.policy_link.snapshot()}
+    )
+
+
+async def handle_autonomy_stop(request: web.Request) -> web.Response:
+    state = request.app[STATE]
+    if state.autonomy is not None:
+        await state.autonomy.stop()
+        state.autonomy = None
+    return web.json_response({"autonomy": "stopped"})
+
+
 async def handle_config_get(request: web.Request) -> web.Response:
     return web.json_response(request.app[STATE].config)
 
@@ -197,6 +258,8 @@ def build_app(
     max_rate_hz: float = 50,
     encoding: str = "ascii",
     telemetry_interval: float = 0.1,
+    autonomy_config: dict[str, Any] | None = None,
+    autonomy_factory: AutonomyFactory | None = None,
 ) -> web.Application:
     """Build the full pibotd agent: base app + transport controller + control/telemetry routes."""
     state = AgentState(
@@ -204,6 +267,8 @@ def build_app(
         trust_loopback=trust_loopback,
         vcgencmd_run=vcgencmd_run,
         telemetry_interval=telemetry_interval,
+        autonomy_config=autonomy_config or {},
+        autonomy_factory=autonomy_factory,
     )
     state.controller = TransportController(
         transport,
@@ -219,6 +284,8 @@ def build_app(
         await state.controller.start()
 
     async def _cleanup(_app: web.Application) -> None:
+        if state.autonomy is not None:
+            await state.autonomy.stop()
         assert state.controller is not None
         await state.controller.stop()
 
@@ -227,6 +294,9 @@ def build_app(
     app.router.add_get("/telemetry", handle_telemetry)
     app.router.add_get("/control", handle_ws_control)
     app.router.add_post("/estop", handle_estop)
+    app.router.add_post("/autonomy", handle_autonomy_start)
+    app.router.add_get("/autonomy", handle_autonomy_status)
+    app.router.add_delete("/autonomy", handle_autonomy_stop)
     app.router.add_get("/config", handle_config_get)
     app.router.add_post("/config", handle_config_post)
     return app

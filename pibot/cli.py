@@ -963,34 +963,58 @@ def _autonomy_limits(max_speed: float | None) -> Limits:
 def _run_closed_loop(
     cfg: Config, inv: Inventory, target: str, prompt: str, *, max_speed: float | None, dry_run: bool
 ) -> int:
-    """Closed-loop autonomy: the remote VLA drives the robot through the M4 safety gate."""
+    """Closed-loop autonomy: the VLA drives the robot **in-process inside pibotd** (via /autonomy).
+
+    Like ``teleop``, the CLI is a thin client — it tells the agent to start driving and streams the
+    policy-link health back. The policy server, camera, transport, and the single safety gate all
+    live in pibotd, so ``--run`` just needs the agent reachable (no local camera/policy here).
+    """
     address = inv.resolve(target)  # validate the robot exists in the inventory
-    cfg.prompt = prompt
     limits = _autonomy_limits(max_speed)
-    # The policy server (the VLA host, e.g. the Mac over Nebula) is NOT the robot — it must be
-    # configured explicitly; we never fall back to the robot's address as the policy host.
     if dry_run:
         print(
-            f"[dry-run] closed-loop autonomy -> {target} ({address}): "
-            f"policy {cfg.policy_host or '<unset>'}:{cfg.policy_port}, prompt={prompt!r}, "
-            f"max |v|={limits.max_v} m/s, max |w|={limits.max_w} rad/s @ {cfg.control_hz}Hz "
-            f"(transport={cfg.transport}) — no transport/camera/socket opened"
+            f"[dry-run] closed-loop autonomy -> {target} ({address}) via pibotd: "
+            f"prompt={prompt!r}, max |v|={limits.max_v} m/s, max |w|={limits.max_w} rad/s "
+            f"— no command sent (the agent owns the policy/camera/transport + safety gate)"
         )
         return 0
-    if not cfg.policy_host:
-        raise UsageError(
-            "no policy server: set policy_host in config (the VLA server, e.g. the Mac over Nebula)"
+    return _drive_via_agent(cfg, inv, target, prompt, max_speed)
+
+
+def _drive_via_agent(  # pragma: no cover - live network: pibotd /autonomy + telemetry stream
+    cfg: Config, inv: Inventory, target: str, prompt: str, max_speed: float | None
+) -> int:
+    import asyncio
+    import contextlib
+
+    from agent.auth import load_token
+    from pibot.control.client import AgentClient
+
+    async def _drive() -> int:
+        client = AgentClient(
+            _agent_base_url(cfg, inv, target), token=load_token(cfg.agent_token_path)
         )
+        await client.open()
+        try:
+            started = await client.autonomy_start(prompt=prompt, max_speed=max_speed)
+            print(f"autonomy started via pibotd: {started}. Ctrl-C to stop.")
+            async for snap in client.telemetry_stream():
+                pol = snap.get("policy", {})
+                _log.info(
+                    "autonomy: policy connected=%s infer=%sms chunk_age=%sms",
+                    pol.get("connected"),
+                    pol.get("last_inference_ms"),
+                    pol.get("chunk_age_ms"),
+                )
+        except KeyboardInterrupt:
+            pass
+        finally:
+            with contextlib.suppress(Exception):
+                await client.autonomy_stop()  # always tell the agent to halt
+            await client.close()
+        return 0
 
-    from pibot.ml.camera import Camera
-    from pibot.ml.closed_loop import run_closed_loop
-
-    camera = Camera(cfg.camera_device)
-    camera.open()
-    try:
-        return run_closed_loop(cfg, camera, limits=limits, control_hz=cfg.control_hz)
-    finally:
-        camera.close()
+    return asyncio.run(_drive())
 
 
 def _resolve_prompt(args: argparse.Namespace, cfg: Config) -> str:

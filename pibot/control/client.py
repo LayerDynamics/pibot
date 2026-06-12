@@ -55,6 +55,29 @@ class AgentClient:
             data: dict[str, Any] = await resp.json()
             return data
 
+    async def autonomy_start(
+        self, *, prompt: str, max_speed: float | None = None, control_hz: float | None = None
+    ) -> dict[str, Any]:
+        """Ask the agent to start in-process closed-loop autonomy (through its safety gate)."""
+        assert self._session is not None
+        payload: dict[str, Any] = {"prompt": prompt}
+        if max_speed is not None:
+            payload["max_speed"] = max_speed
+        if control_hz is not None:
+            payload["control_hz"] = control_hz
+        async with self._session.post(self._base + "/autonomy", json=payload) as resp:
+            if resp.status >= 400:
+                text = await resp.text()
+                raise RuntimeError(f"Failed to start autonomy ({resp.status}): {text}")
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def autonomy_stop(self) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.delete(self._base + "/autonomy") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
     async def telemetry_stream(self) -> AsyncIterator[dict[str, Any]]:
         assert self._session is not None
         ws = await self._session.ws_connect(self._base + "/telemetry")
