@@ -52,6 +52,10 @@ class Camera:
 
     def close(self) -> None:
         self._open = False
+        cap = getattr(self, "_cap", None)
+        if cap is not None:
+            cap.release()
+            self._cap = None
 
     @property
     def is_open(self) -> bool:
