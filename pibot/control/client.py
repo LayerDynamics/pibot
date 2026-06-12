@@ -66,6 +66,9 @@ class AgentClient:
         if control_hz is not None:
             payload["control_hz"] = control_hz
         async with self._session.post(self._base + "/autonomy", json=payload) as resp:
+            if resp.status >= 400:
+                text = await resp.text()
+                raise RuntimeError(f"Failed to start autonomy ({resp.status}): {text}")
             data: dict[str, Any] = await resp.json()
             return data
 
