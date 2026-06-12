@@ -65,7 +65,7 @@ def render_watchdog_conf(runtime_sec: int = 14, reboot: str = "2min") -> str:
     ``RuntimeWatchdogSec`` MUST be ≤ 15 s or the kernel silently disables it (research /
     systemd #27427); a frozen kernel then reboots after ``RebootWatchdogSec``.
     """
-    runtime_sec = min(runtime_sec, 15)
+    runtime_sec = max(1, min(runtime_sec, 15))
     return (
         "# PiBot: arm the BCM hardware watchdog (a frozen kernel reboots itself).\n"
         "[Manager]\n"
