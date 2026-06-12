@@ -7,7 +7,7 @@
 | **Depends on** | M3 |
 | **Branch** | `m4-agent-teleop-telemetry` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped (commit `d2de06e`) |
 
 > Conventions per the
 > [roadmap](2026-06-11-pibot-control-suite-roadmap.md#shared-conventions-apply-to-every-task-in-every-milestone).

@@ -57,7 +57,7 @@ This is **exactly PiBot's brain/muscles split** (SPEC-1 §1) extended one hop:
 │         │                                                    │
 │   openpi_client.WebsocketClientPolicy (msgpack+numpy)        │
 └─────────┼────────────────────────────────────────────────────┘
-          │  websocket  (LAN, or over the existing ZeroTier overlay)
+          │  websocket  (LAN, or over the Nebula overlay)
           ▼
 ┌─── Policy server: THIS MacBook (M4 Max, 36 GB, MPS) ─ or a remote NVIDIA GPU ─┐
 │  openpi.serving.WebsocketPolicyServer                                        │
@@ -159,7 +159,7 @@ at, say, 20-50 Hz without stalling each step.
 | `Environment.apply_action` | **M3** `Transport` + protocol | Action vector → `drive(v,w)`/`servo(id,deg)` frames; define a single `_action_to_command` mapping |
 | `Runtime` loop | **M4** `pibotd` agent | Runtime runs inside the agent that already owns the transport (sole-owner rule, D2) |
 | every `apply_action` | **M4** safety subsystem | VLA actions pass clamp + latched e-stop + deadman watchdog **before** actuating — the model never bypasses local safety |
-| `WebsocketClientPolicy(host=...)` | **pifinder/inventory + ZeroTier** | The Pi already rides a ZeroTier overlay (`10.147.20.x`). Put the GPU box on the same overlay → secure, zero-config link; store the endpoint in `~/.config/pibot/config.toml` |
+| `WebsocketClientPolicy(host=...)` | **pifinder/inventory + Nebula** | Put the Pi and the GPU box on the same Nebula overlay (`192.168.100.x`) → encrypted, stable-address link from anywhere; store the endpoint in `~/.config/pibot/config.toml` |
 | `openpi_client` on the Pi | **M5** `pibot deploy` | Deploy `openpi_client` + `PibotEnvironment` to the Pi; the policy server deploys to the GPU box via openpi's Docker compose |
 | `subscriber.on_step(obs, action)` | **M4** telemetry/logging | Reuse the telemetry recorder to log episodes for fine-tuning |
 | `image_tools.resize_with_pad` | new **camera** module | Pi captures frames → 224×224 uint8 → obs dict (lightweight; PIL/numpy only) |
@@ -196,7 +196,7 @@ you define `PibotInputs`/`PibotOutputs` transforms (the UR5 README is the templa
 ## 6. Running the policy server on this MacBook (M4 Max — Apple Silicon)
 
 **Decision: the M4 Max is the policy server.** The Pi 5 client connects to it over
-LAN / the ZeroTier overlay. No NVIDIA box, no cloud rental, no recurring cost — and
+LAN / the Nebula overlay. No NVIDIA box, no cloud rental, no recurring cost — and
 the M4 Max's **36 GB unified memory** comfortably fits π₀'s 3.3 B params (~7 GB in
 bf16). This is a strong fit; the only open question is the Apple-Silicon **software
 path**, and here the honest state matters:
@@ -246,8 +246,8 @@ coverage proves inadequate.
 **Serving + connectivity (either route):** run
 `scripts/serve_policy.py policy:checkpoint --policy.config=<pibot> --policy.dir=<ckpt>`
 on the Mac (binds `0.0.0.0:8000`). The Pi uses
-`WebsocketClientPolicy(host=<mac overlay/LAN IP>, port=8000)`. Put the Mac on the same
-**ZeroTier overlay** the Pi already rides for a stable address, and store it in
+`WebsocketClientPolicy(host=<mac overlay/LAN IP>, port=8000)`. Put the Mac and the Pi on the
+same **Nebula overlay** for a stable address from anywhere, and store it in
 `~/.config/pibot/config.toml`. Operational note: the Mac must be **awake and reachable**
 whenever the robot is autonomous, and sustained 3.3 B inference on a laptop is a
 thermal/power load.

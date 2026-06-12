@@ -74,9 +74,14 @@ def install_key(
     key_path: Path | None = None,
     explicit_user: str | None = None,
     identity: str | None = None,
+    dry_run: bool = False,
 ) -> int:
     """Generate (if needed) and install the suite's public key on ``target``."""
     key_path = key_path or default_key_path()
+    if dry_run and not (key_path.exists() and _public_path(key_path).exists()):
+        return runner.preview(
+            ["ssh-keygen", "-t", "ed25519", "-f", str(key_path)], label="keys install (generate)"
+        )
     ensure_keypair(key_path)
     public_key = read_public_key(key_path)
 
@@ -88,6 +93,8 @@ def install_key(
         sshcmd.destination(address, login),
         _authorized_keys_command(public_key),
     ]
+    if dry_run:
+        return runner.preview(argv, label="keys install")
     _log.info("installing pibot key on %s (you may be prompted for the password)", address)
     rc = runner.run_interactive(argv)
     if rc == 0:

@@ -64,6 +64,17 @@ def _target_flags() -> argparse.ArgumentParser:
     return t
 
 
+def _add_dry_run(parser: argparse.ArgumentParser) -> None:
+    """Attach the standard ``--dry-run`` flag to a state-changing subcommand."""
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        default=argparse.SUPPRESS,
+        help="show what would happen, change nothing",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     g = _global_flags()
     parser = argparse.ArgumentParser(
@@ -133,6 +144,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="force scp instead of rsync",
     )
+    _add_dry_run(p_push)
     p_push.set_defaults(func=cmd_push)
 
     p_pull = sub.add_parser("pull", parents=[g, t], help="copy a path from the robot")
@@ -152,6 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="force scp instead of rsync",
     )
+    _add_dry_run(p_pull)
     p_pull.set_defaults(func=cmd_pull)
 
     p_keys = sub.add_parser("keys", parents=[g], help="manage SSH keys")
@@ -166,6 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="private key path (default: ~/.ssh/pibot_ed25519)",
     )
+    _add_dry_run(p_keys_install)
     p_keys_install.set_defaults(func=cmd_keys_install)
 
     p_tunnel = sub.add_parser("tunnel", parents=[g, t], help="open an SSH port-forward")
@@ -230,6 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="required for update / boot-order",
     )
+    _add_dry_run(p_eeprom)
     p_eeprom.set_defaults(func=cmd_eeprom)
 
     p_prov = sub.add_parser("provision", parents=[g], help="clone/restore the Pi NVMe")
@@ -239,12 +254,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_clone.add_argument("--to", required=True, dest="to_file", help="output image (.img.gz)")
     p_clone.add_argument("--device", default="/dev/nvme0n1", help="source device on the Pi")
     p_clone.add_argument("--shrink", action="store_true", default=argparse.SUPPRESS)
+    _add_dry_run(p_clone)
     p_clone.set_defaults(func=cmd_provision_clone)
     p_restore = prov_sub.add_parser("restore", parents=[g, t], help="restore an image to the Pi")
     p_restore.add_argument("target")
     p_restore.add_argument("--from", required=True, dest="from_file", help="image to restore")
     p_restore.add_argument("--device", default="/dev/nvme0n1", help="target device on the Pi")
     p_restore.add_argument("--confirm", action="store_true", default=argparse.SUPPRESS)
+    _add_dry_run(p_restore)
     p_restore.set_defaults(func=cmd_provision_restore)
 
     p_fw = sub.add_parser("firmware", parents=[g], help="build/flash Arduino firmware")
@@ -253,10 +270,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_fw_build.add_argument("sketch")
     p_fw_build.add_argument("--fqbn", required=True, help="e.g. arduino:avr:uno")
     p_fw_build.set_defaults(func=cmd_firmware_build)
-    p_fw_flash = fw_sub.add_parser("flash", parents=[g], help="upload a sketch")
+    p_fw_flash = fw_sub.add_parser("flash", parents=[g], help="upload a sketch (USB or OTA)")
     p_fw_flash.add_argument("sketch")
     p_fw_flash.add_argument("--fqbn", required=True, help="e.g. arduino:avr:uno")
-    p_fw_flash.add_argument("--port", required=True, help="e.g. /dev/ttyACM0")
+    p_fw_flash.add_argument("--port", help="USB serial port, e.g. /dev/ttyACM0")
+    p_fw_flash.add_argument(
+        "--ota", dest="ota_host", help="flash over WiFi (OTA) to this host/IP instead of USB"
+    )
+    p_fw_flash.add_argument("--ota-port", dest="ota_port", type=int, default=3232)
+    p_fw_flash.add_argument("--ota-pass", dest="ota_pass", default="", help="OTA password if set")
+    _add_dry_run(p_fw_flash)
     p_fw_flash.set_defaults(func=cmd_firmware_flash)
 
     # ---- control ----
@@ -272,6 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="override the configured transport",
     )
+    _add_dry_run(p_cmd)
     p_cmd.set_defaults(func=cmd_cmd)
 
     p_estop = sub.add_parser("estop", parents=[g], help="emergency-stop the robot")
@@ -279,6 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_estop.add_argument(
         "--transport", dest="transport_override", choices=_transports, default=argparse.SUPPRESS
     )
+    _add_dry_run(p_estop)
     p_estop.set_defaults(func=cmd_estop)
 
     # ---- agent / teleop / telemetry ----
@@ -303,7 +328,13 @@ def build_parser() -> argparse.ArgumentParser:
         ap.add_argument("target")
         if action == "logs":
             ap.add_argument("--lines", type=int, default=50)
+        if action in ("start", "stop"):
+            _add_dry_run(ap)
         ap.set_defaults(func=cmd_agent, agent_action=action)
+    p_agent_token = agent_sub.add_parser(
+        "token", parents=[g], help="generate/show the local agent bearer token"
+    )
+    p_agent_token.set_defaults(func=cmd_agent_token)
 
     # ---- deploy / play ----
     p_deploy = sub.add_parser("deploy", parents=[g, t], help="deploy/restart pibotd on the Pi")
@@ -329,6 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_play.add_argument("target")
     p_play.add_argument("sequence", help="motion sequence file (.yaml/.json)")
     p_play.add_argument("--rate", type=float, default=argparse.SUPPRESS, help="keepalive Hz")
+    _add_dry_run(p_play)
     p_play.set_defaults(func=cmd_play)
 
     return parser
@@ -473,6 +505,7 @@ def cmd_push(args: argparse.Namespace) -> int:
         identity=getattr(args, "identity", None),
         verify=getattr(args, "verify", False),
         rsync_available=_rsync_override(args),
+        dry_run=getattr(args, "dry_run", False),
     )
 
 
@@ -488,6 +521,7 @@ def cmd_pull(args: argparse.Namespace) -> int:
         identity=getattr(args, "identity", None),
         verify=getattr(args, "verify", False),
         rsync_available=_rsync_override(args),
+        dry_run=getattr(args, "dry_run", False),
     )
 
 
@@ -501,6 +535,7 @@ def cmd_keys_install(args: argparse.Namespace) -> int:
         key_path=key_path,
         explicit_user=getattr(args, "user", None),
         identity=getattr(args, "identity", None),
+        dry_run=getattr(args, "dry_run", False),
     )
 
 
@@ -559,18 +594,29 @@ def cmd_flash(args: argparse.Namespace) -> int:
 
 def cmd_eeprom(args: argparse.Namespace) -> int:
     cfg, inv = _context()
-    user = getattr(args, "user", None)
+    user_arg = getattr(args, "user", None)
     confirm = getattr(args, "confirm", False)
+    dry_run = getattr(args, "dry_run", False)
     if args.action == "status":
-        return eeprom.status(args.target, cfg=cfg, inventory=inv, user=user)
+        return eeprom.status(args.target, cfg=cfg, inventory=inv, user=user_arg, dry_run=dry_run)
     if args.action == "config":
-        return eeprom.show_config(args.target, cfg=cfg, inventory=inv, user=user)
+        return eeprom.show_config(
+            args.target, cfg=cfg, inventory=inv, user=user_arg, dry_run=dry_run
+        )
     if args.action == "update":
-        return eeprom.update(args.target, cfg=cfg, inventory=inv, user=user, confirm=confirm)
+        return eeprom.update(
+            args.target, cfg=cfg, inventory=inv, user=user_arg, confirm=confirm, dry_run=dry_run
+        )
     if not args.value:
         raise UsageError("boot-order requires a value, e.g. 0xf416")
     return eeprom.set_boot_order(
-        args.target, args.value, cfg=cfg, inventory=inv, user=user, confirm=confirm
+        args.target,
+        args.value,
+        cfg=cfg,
+        inventory=inv,
+        user=user_arg,
+        confirm=confirm,
+        dry_run=dry_run,
     )
 
 
@@ -584,6 +630,7 @@ def cmd_provision_clone(args: argparse.Namespace) -> int:
         user=getattr(args, "user", None),
         device=args.device,
         shrink=getattr(args, "shrink", False),
+        dry_run=getattr(args, "dry_run", False),
     )
 
 
@@ -597,6 +644,7 @@ def cmd_provision_restore(args: argparse.Namespace) -> int:
         user=getattr(args, "user", None),
         device=args.device,
         confirm=getattr(args, "confirm", False),
+        dry_run=getattr(args, "dry_run", False),
     )
 
 
@@ -605,7 +653,20 @@ def cmd_firmware_build(args: argparse.Namespace) -> int:
 
 
 def cmd_firmware_flash(args: argparse.Namespace) -> int:
-    return firmware.flash(args.sketch, fqbn=args.fqbn, port=args.port)
+    dry_run = getattr(args, "dry_run", False)
+    ota_host = getattr(args, "ota_host", None)
+    if ota_host:
+        return firmware.flash_ota(
+            args.sketch,
+            fqbn=args.fqbn,
+            host=ota_host,
+            port=getattr(args, "ota_port", 3232),
+            password=getattr(args, "ota_pass", ""),
+            dry_run=dry_run,
+        )
+    if not getattr(args, "port", None):
+        raise UsageError("firmware flash needs --port (USB) or --ota <host> (wireless)")
+    return firmware.flash(args.sketch, fqbn=args.fqbn, port=args.port, dry_run=dry_run)
 
 
 # ---- control -------------------------------------------------------------
@@ -628,12 +689,19 @@ def cmd_cmd(args: argparse.Namespace) -> int:
         cfg=cfg,
         inventory=inv,
         as_json=getattr(args, "json", False),
+        dry_run=getattr(args, "dry_run", False),
     )
 
 
 def cmd_estop(args: argparse.Namespace) -> int:
     cfg, inv = _control_context(args)
-    return oneshot.estop(args.target, cfg=cfg, inventory=inv, as_json=getattr(args, "json", False))
+    return oneshot.estop(
+        args.target,
+        cfg=cfg,
+        inventory=inv,
+        as_json=getattr(args, "json", False),
+        dry_run=getattr(args, "dry_run", False),
+    )
 
 
 # ---- agent / teleop / monitor --------------------------------------------
@@ -692,14 +760,30 @@ def cmd_monitor(args: argparse.Namespace) -> int:
 def cmd_agent(args: argparse.Namespace) -> int:
     cfg, inv = _context()
     user_arg = getattr(args, "user", None)
+    dry_run = getattr(args, "dry_run", False)
     action = args.agent_action
     if action == "status":
         return agent_ctl.status(args.target, cfg=cfg, inventory=inv, user=user_arg)
     if action == "start":
-        return agent_ctl.start(args.target, cfg=cfg, inventory=inv, user=user_arg)
+        return agent_ctl.start(args.target, cfg=cfg, inventory=inv, user=user_arg, dry_run=dry_run)
     if action == "stop":
-        return agent_ctl.stop(args.target, cfg=cfg, inventory=inv, user=user_arg)
+        return agent_ctl.stop(args.target, cfg=cfg, inventory=inv, user=user_arg, dry_run=dry_run)
     return agent_ctl.logs(args.target, cfg=cfg, inventory=inv, user=user_arg, lines=args.lines)
+
+
+def cmd_agent_token(args: argparse.Namespace) -> int:
+    from agent.auth import generate_token
+
+    cfg, _ = _context()
+    path = cfg.agent_token_path
+    token = generate_token(path)
+    if getattr(args, "json", False):
+        print(json.dumps({"token": token, "path": path}))
+    else:
+        print(f"token: {token}")
+        print(f"path:  {path}")
+        print("copy this token to the Pi's agent.token (same path) to allow non-loopback access")
+    return 0
 
 
 # ---- deploy / play -------------------------------------------------------
@@ -766,4 +850,10 @@ def cmd_play(args: argparse.Namespace) -> int:
     cfg, inv = _context()
     steps = load_sequence(Path(args.sequence))
     rate = getattr(args, "rate", None) or cfg.teleop_rate_hz
+    if getattr(args, "dry_run", False):
+        print(f"[dry-run] {len(steps)} step(s) for {args.target} @ {rate}Hz keepalive:")
+        for step in steps:
+            args_str = " ".join(f"{k}={v}" for k, v in step.args.items())
+            print(f"  t={step.at:>6.2f}s  {step.cmd} {args_str}".rstrip())
+        return 0
     return _drive_sequence(cfg, inv, args.target, steps, rate)

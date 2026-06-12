@@ -17,7 +17,7 @@ from pibot import tomlio
         {
             "host": [
                 {"alias": "pibot", "ip": "192.168.1.99", "port": 22, "pi": True},
-                {"alias": "spare", "ip": "10.147.20.44"},
+                {"alias": "spare", "ip": "192.168.100.44"},
             ],
             "version": 1,
         },

@@ -89,16 +89,22 @@ def cmd(
     transport: Transport | None = None,
     estop_state: EStop | None = None,
     as_json: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Build, clamp, gate, send one command to ``target``; await its ACK."""
     address = inventory.resolve(target)
-    own_transport = transport is None
-    transport = transport or _build_transport(cfg, address)
 
     msg = clamp_command(build_message(name, raw_args, SeqTracker().next()), Limits())
     if (estop_state or EStop()).allows(msg) is False:
         raise UsageError("e-stop is latched; refusing to send a motion command")
 
+    if dry_run:
+        frame = encode(msg, cfg.encoding).decode(cfg.encoding).rstrip()
+        print(f"[dry-run] would send to {address} via {cfg.transport}: {frame}")
+        return 0
+
+    own_transport = transport is None
+    transport = transport or _build_transport(cfg, address)
     try:
         if not transport.is_open:
             transport.open()
@@ -123,10 +129,18 @@ def estop(
     inventory: Inventory,
     transport: Transport | None = None,
     as_json: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Send the highest-priority stop to ``target``."""
     return cmd(
-        target, "estop", [], cfg=cfg, inventory=inventory, transport=transport, as_json=as_json
+        target,
+        "estop",
+        [],
+        cfg=cfg,
+        inventory=inventory,
+        transport=transport,
+        as_json=as_json,
+        dry_run=dry_run,
     )
 
 

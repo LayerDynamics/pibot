@@ -7,7 +7,7 @@
 | **Depends on** | M5 |
 | **Branch** | `m6-hardening` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped (commit `1f6fc56`) |
 
 > Conventions per the
 > [roadmap](2026-06-11-pibot-control-suite-roadmap.md#shared-conventions-apply-to-every-task-in-every-milestone).

@@ -7,7 +7,7 @@
 | **Depends on** | M0 |
 | **Branch** | `m1-connection-ssh-ops` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped (commit `08d9cd2`) |
 
 > Conventions (strict TDD, quality gates, git, bug rule) per the
 > [roadmap](2026-06-11-pibot-control-suite-roadmap.md#shared-conventions-apply-to-every-task-in-every-milestone).

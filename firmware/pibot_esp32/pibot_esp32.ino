@@ -2,7 +2,7 @@
 //
 // One board does it all: the ESP32 joins Wi-Fi, serves the PiBot protocol over TCP
 // :3333, AND drives the motors/servos directly. The Pi connects with
-// TcpTransport(esp32_ip, 3333) over Wi-Fi / the ZeroTier overlay — no USB, no Arduino.
+// TcpTransport(esp32_ip, 3333) over Wi-Fi (or the Nebula overlay) — no USB, no Arduino.
 //
 // Speaks the same protocol as the host codec (protocol.h, identical to
 // pibot/protocol/codec.py). Three safety guards mirror pibot/control/safety.py, plus a
@@ -18,10 +18,31 @@
 
 #include "protocol.h"
 #include <WiFi.h>
+#include <ArduinoOTA.h>  // over-the-air firmware updates (wireless flashing)
+
+// Wi-Fi credentials live in a gitignored secrets.h (copy secrets.h.example). Falling
+// back to placeholders keeps the sketch compiling in CI / without secrets.
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#ifndef PIBOT_WIFI_SSID
+#define PIBOT_WIFI_SSID "your-ssid"
+#endif
+#ifndef PIBOT_WIFI_PASS
+#define PIBOT_WIFI_PASS "your-password"
+#endif
+// OTA: empty password = open on the LAN (simplest); set PIBOT_OTA_PASS in secrets.h to
+// require a password for wireless flashing. The mDNS hostname is the OTA target.
+#ifndef PIBOT_OTA_PASS
+#define PIBOT_OTA_PASS ""
+#endif
+#ifndef PIBOT_OTA_HOST
+#define PIBOT_OTA_HOST "pibot-esp32"
+#endif
 
 // ----------------------------- CONFIG ------------------------------------
-static const char *WIFI_SSID = "your-ssid";
-static const char *WIFI_PASS = "your-password";
+static const char *WIFI_SSID = PIBOT_WIFI_SSID;
+static const char *WIFI_PASS = PIBOT_WIFI_PASS;
 static const uint16_t TCP_PORT = 3333;
 
 static const unsigned long WATCHDOG_MS = 300;
@@ -206,11 +227,26 @@ void setup() {
   Serial.print(WiFi.localIP());
   Serial.print(':');
   Serial.println(TCP_PORT);
+
+  // Over-the-air updates (wireless flashing). Halt the motors before an update
+  // writes flash, so the robot never drives while it is being reflashed.
+  ArduinoOTA.setHostname(PIBOT_OTA_HOST);
+  if (strlen(PIBOT_OTA_PASS) > 0) {
+    ArduinoOTA.setPassword(PIBOT_OTA_PASS);
+  }
+  ArduinoOTA.onStart([]() { stop_all(); });
+  ArduinoOTA.begin();
+  Serial.print("OTA ready: ");
+  Serial.print(PIBOT_OTA_HOST);
+  Serial.println(".local");
+
   server.begin();
   last_cmd_ms = millis();
 }
 
 void loop() {
+  ArduinoOTA.handle();  // service wireless-flash requests
+
   // Accept / maintain a single client.
   if (!client || !client.connected()) {
     WiFiClient incoming = server.available();

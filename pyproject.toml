@@ -52,14 +52,18 @@ disallow_untyped_defs = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# Deselect manual-only tests by default so the standard gate runs with ZERO skips and stays
+# fast/hermetic. Run them explicitly: `pytest -m hardware` (needs a real Pi via
+# PIBOT_TEST_HOST) / `pytest -m toolchain` (needs arduino-cli + cores).
+addopts = "-q -m 'not hardware and not toolchain'"
 markers = [
-    "hardware: tests that require the physical Pi/Arduino (skipped unless PIBOT_TEST_HOST is set)",
+    "hardware: requires the physical Pi/robot (set PIBOT_TEST_HOST; run with -m hardware)",
+    "toolchain: requires the arduino-cli toolchain + cores (run with -m toolchain)",
 ]
 
 [tool.coverage.run]
-source = ["pibot"]
-omit = ["pibot/__main__.py"]
+source = ["pibot", "agent"]
+omit = ["pibot/__main__.py", "agent/__main__.py"]
 
 [tool.coverage.report]
 fail_under = 80

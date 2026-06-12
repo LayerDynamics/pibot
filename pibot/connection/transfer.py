@@ -74,11 +74,14 @@ def push(
     identity: str | None = None,
     rsync_available: bool | None = None,
     verify: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Copy a local ``src`` to ``dst`` on the robot. Returns the transfer exit code."""
     address, login, ident = _resolve(target, cfg, inventory, explicit_user, identity)
     remote = sshcmd.remote_destination(address, login, dst)
     argv = _build(src, remote, ident, _rsync_present(rsync_available))
+    if dry_run:
+        return runner.preview(argv, label="push")
     result = runner.run_capture(argv)
     if result.stdout:
         _log.debug("%s", result.stdout.rstrip())
@@ -102,11 +105,14 @@ def pull(
     identity: str | None = None,
     rsync_available: bool | None = None,
     verify: bool = False,
+    dry_run: bool = False,
 ) -> int:
     """Copy ``src`` from the robot to local ``dst``. Returns the transfer exit code."""
     address, login, ident = _resolve(target, cfg, inventory, explicit_user, identity)
     remote = sshcmd.remote_destination(address, login, src)
     argv = _build(remote, dst, ident, _rsync_present(rsync_available))
+    if dry_run:
+        return runner.preview(argv, label="pull")
     result = runner.run_capture(argv)
     if result.stdout:
         _log.debug("%s", result.stdout.rstrip())

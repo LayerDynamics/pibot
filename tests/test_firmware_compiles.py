@@ -8,7 +8,6 @@ the toolchain + cores) so the fast unit gate stays fast.
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -33,17 +32,16 @@ def test_firmware_crc8_matches_host_codec() -> None:
     assert "0x07" in src and "crc ^= " in src  # poly 0x07, init 0x00 (same as codec.crc8)
 
 
-_RUN_COMPILE = os.environ.get("PIBOT_FIRMWARE_COMPILE") == "1"
-
-
 def _core_installed(core: str) -> bool:
     if not shutil.which("arduino-cli"):
         return False
     out = subprocess.run(["arduino-cli", "core", "list"], capture_output=True, text=True).stdout
-    return core in out
+    # match the core ID column exactly — a substring check false-positives e.g.
+    # "esp32:esp32" against an installed "Heltec-esp32:esp32".
+    return any(line.split()[:1] == [core] for line in out.splitlines())
 
 
-@pytest.mark.skipif(not _RUN_COMPILE, reason="set PIBOT_FIRMWARE_COMPILE=1 to run compiles")
+@pytest.mark.toolchain  # manual-only: needs arduino-cli + cores; deselected by default
 @pytest.mark.parametrize(
     "sketch,fqbn,core",
     [

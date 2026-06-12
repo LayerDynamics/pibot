@@ -24,7 +24,7 @@ echo "== mypy =="
 "$MYPY" "${MYPY_TARGETS[@]}"
 
 echo "== pytest (with coverage gate) =="
-"$PYTEST" --cov=pibot --cov-report=term-missing
+"$PYTEST" --cov=pibot --cov=agent --cov-report=term-missing
 
 echo ""
 echo "ALL GATES PASSED"

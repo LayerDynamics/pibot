@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  gate:
+    name: Quality gate (ruff, format, mypy, pytest+coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Create venv and install the suite + dev tools
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -e .
+          .venv/bin/pip install ruff mypy pytest pytest-cov pyyaml
+      - name: Run the quality gate
+        # Same gate as local: ruff check + format --check + mypy + pytest with the
+        # coverage threshold. Hardware-marked tests skip cleanly (no test host is set).
+        run: bash scripts/check.sh
+
+  firmware:
+    name: Firmware compile + host echo-stand round-trip (no hardware)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install arduino-cli
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh -s
+          echo "$PWD/bin" >> "$GITHUB_PATH"
+      - name: Install Arduino cores
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+          # ESP32 core (the wireless-first primary controller)
+          arduino-cli config init --overwrite
+          arduino-cli config add board_manager.additional_urls \
+            https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+      - name: Compile the AVR sketch
+        run: arduino-cli compile --fqbn arduino:avr:uno firmware/pibot_arduino
+      - name: Compile the ESP32 controller + TCP bridge
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32 firmware/pibot_esp32
+          arduino-cli compile --fqbn esp32:esp32:esp32 firmware/esp32_tcp_bridge
+      - name: Host-side echo-stand control-path round-trip + firmware compile tests
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e . pytest pyyaml
+          # echo-stand round-trip runs by default; the compile tests are manual-only
+          # (marker 'toolchain'), so select them explicitly now that the cores are installed.
+          .venv/bin/pytest tests/test_echo_roundtrip.py -q
+          .venv/bin/pytest -o addopts="" -m toolchain tests/test_firmware_compiles.py -q

@@ -213,3 +213,25 @@ def test_non_utf8_bytes_rejected() -> None:
     with pytest.raises(DecodeError) as exc:
         codec.decode(b"\xff\xfe\n", "ascii")
     assert exc.value.reason == "encoding"
+
+
+def test_encode_formats_bool_as_one_or_zero() -> None:
+    # bools must serialize as 1/0, never Python's "True"/"False" (the firmware parses ints).
+    on = codec.encode(Message(MessageType.COMMAND, 1, "led", {"state": True}), "ascii")
+    off = codec.encode(Message(MessageType.COMMAND, 2, "led", {"state": False}), "ascii")
+    assert b">1,led,1*" in on
+    assert b">2,led,0*" in off
+
+
+def test_encode_orders_args_by_schema_not_dict_order() -> None:
+    # "drive" has a fixed field order [v, w]; encoding must follow it regardless of how the
+    # args dict was built, or the firmware reads v and w swapped.
+    frame = codec.encode(Message(MessageType.COMMAND, 3, "drive", {"w": 0.0, "v": 0.5}), "ascii")
+    assert frame.startswith(b">3,drive,0.5,0.0*")  # v before w, per the schema
+
+
+def test_decode_accepts_str_frame() -> None:
+    # decode is typed for str|bytes; a str frame round-trips the same as the bytes form.
+    frame = codec.encode(Message(MessageType.COMMAND, 7, "ping", {}), "ascii")
+    msg = codec.decode(frame.decode("ascii"), "ascii")
+    assert msg.name == "ping" and msg.seq == 7

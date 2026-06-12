@@ -7,7 +7,7 @@
 | **Depends on** | M1 |
 | **Branch** | `m3-transport-protocol-control` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped (commit `1505d85`) |
 
 > Conventions per the
 > [roadmap](2026-06-11-pibot-control-suite-roadmap.md#shared-conventions-apply-to-every-task-in-every-milestone).
