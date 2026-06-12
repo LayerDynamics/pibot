@@ -48,7 +48,24 @@ def write_dataset(  # pragma: no cover - LeRobot on-disk write (lerobot dep, M4 
     """Write the episodes to a LeRobot dataset on disk; return the dataset path."""
     from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
-    ds = LeRobotDataset.create(repo_id=repo_id, fps=fps, root=out_dir, features={})
+    features = {
+        "observation.image": {
+            "dtype": "video",
+            "shape": (224, 224, 3),
+            "names": ["height", "width", "channels"],
+        },
+        "observation.state": {
+            "dtype": "float32",
+            "shape": (2,),
+            "names": ["v", "w"],
+        },
+        "action": {
+            "dtype": "float32",
+            "shape": (2,),
+            "names": ["v", "w"],
+        },
+    }
+    ds = LeRobotDataset.create(repo_id=repo_id, fps=fps, root=out_dir, features=features)
     for episode in episodes:
         for rec in episode:
             obs = rec.obs or {}
