@@ -11,6 +11,9 @@ docs/
 firmware/
 resources/
 scripts/
+images/
+*.img
+*.img.xz
 releases/
 .venv/
 .ruff_cache/
