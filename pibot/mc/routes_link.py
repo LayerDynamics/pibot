@@ -31,6 +31,7 @@ async def handle_connect(request: web.Request) -> web.Response:
         raise web.HTTPBadGateway(text=f"could not reach {robot}: {exc}") from exc
     state.connected = True
     state.robot = state.link.robot
+    state.video_relay = state.link.video_relay
     return web.json_response(info, status=201)
 
 

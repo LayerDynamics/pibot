@@ -9,12 +9,15 @@ re-implements the link: it delegates to the existing ``pibot.control.client.Agen
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import aiohttp
 
 from agent.auth import load_token
 from pibot.config import load_config
 from pibot.control.client import AgentClient
 from pibot.inventory import Inventory
+from pibot.mc.video_relay import VideoRelay
 
 # (robot alias) -> (base_url, bearer token)
 Resolver = Callable[[str], "tuple[str, str | None]"]
@@ -44,6 +47,8 @@ class RobotLink:
         self._on_connect = on_connect
         self._client: AgentClient | None = None
         self._robot: str | None = None
+        self._video_relay: VideoRelay | None = None
+        self._video_session: aiohttp.ClientSession | None = None
 
     @property
     def connected(self) -> bool:
@@ -52,6 +57,11 @@ class RobotLink:
     @property
     def robot(self) -> str | None:
         return self._robot
+
+    @property
+    def video_relay(self) -> VideoRelay | None:
+        """The active :class:`~pibot.mc.video_relay.VideoRelay`, or ``None`` if not connected."""
+        return self._video_relay
 
     async def connect(self, robot: str) -> dict[str, Any]:
         """Open the link to ``robot``; replaces any existing connection."""
@@ -65,9 +75,23 @@ class RobotLink:
         if self._on_connect is not None:
             # Hand the robot endpoint to the Rust core for the e-stop failsafe (M12.2).
             self._on_connect(url, token)
+
+        # Open a dedicated session for the video relay (separate from control/telemetry).
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        self._video_session = aiohttp.ClientSession(headers=headers)
+        ws_url = url.replace("http://", "ws://").replace("https://", "wss://") + "/video"
+        self._video_relay = VideoRelay(self._video_session, ws_url)
+        self._video_relay.start()
+
         return {"robot": robot, "url": url}
 
     async def disconnect(self) -> None:
+        if self._video_relay is not None:
+            await self._video_relay.stop()
+            self._video_relay = None
+        if self._video_session is not None:
+            await self._video_session.close()
+            self._video_session = None
         if self._client is not None:
             await self._client.close()
             self._client = None

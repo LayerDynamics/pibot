@@ -7,11 +7,15 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from aiohttp import web
 
 from pibot.mc import __version__
 from pibot.mc.robot_link import RobotLink
+
+if TYPE_CHECKING:
+    from pibot.mc.video_relay import VideoRelay
 
 # Invoked on a successful connect with (robot base_url, token) — the Rust endpoint-cache seam.
 OnRobotConnect = Callable[[str, "str | None"], None]
@@ -28,6 +32,8 @@ class McState:
     robot: str | None = None
     link: RobotLink | None = None
     on_robot_connect: OnRobotConnect | None = None
+    video_relay: VideoRelay | None = None
+    teleop_rate_hz: float = 20.0
 
 
 STATE: web.AppKey[McState] = web.AppKey("pibot_mc_state", McState)

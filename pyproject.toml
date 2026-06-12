@@ -12,6 +12,7 @@ dependencies = [
     "aiohttp>=3.9",   # pibotd agent HTTP/WS server + teleop/monitor WS clients — M4
     "psutil>=5.9",    # Pi health telemetry (cpu/mem/load/disk) — M4
     "pyyaml>=6.0",    # pibot play — scripted motion sequence files — M5
+    "Pillow>=10.0",   # JPEG encode for the /video WS endpoint — M12.2
 ]
 
 [project.optional-dependencies]

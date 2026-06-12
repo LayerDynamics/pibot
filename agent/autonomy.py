@@ -142,14 +142,27 @@ def build_runtime(  # pragma: no cover - hardware: opencv camera + openpi websoc
 ) -> tuple[Any, Any]:
     """Build the real (camera, policy) for an autonomy session — lazy cv2/openpi imports.
 
+    The camera is wrapped in a :class:`~agent.video.CameraBroker` so the capture device is
+    opened only once even when both the autonomy loop and the ``/video`` WS endpoint are
+    active.  ``build_app`` accesses ``camera.broker`` to start the capture loop and store it
+    in :class:`~agent.app.AgentState`; the broker must be started before autonomy's first
+    ``step()`` call.
+
     Kept out of import time so ``agent.app`` stays free of the ml stack until autonomy runs.
     """
     from openpi_client import action_chunk_broker, websocket_client_policy
 
     from pibot.ml.camera import Camera
 
-    camera = Camera(autonomy_config.get("camera_device", "/dev/video0"))
-    camera.open()
+    from agent.video import BrokerCamera, CameraBroker
+
+    raw_camera = Camera(autonomy_config.get("camera_device", "/dev/video0"))
+    raw_camera.open()
+    broker = CameraBroker(
+        raw_camera,
+        fps=autonomy_config.get("video_fps", 10),
+    )
+    camera = BrokerCamera(broker.subscribe(), broker=broker)
     policy = action_chunk_broker.ActionChunkBroker(
         websocket_client_policy.WebsocketClientPolicy(
             host=autonomy_config["policy_host"], port=autonomy_config.get("policy_port", 8000)

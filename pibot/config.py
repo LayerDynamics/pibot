@@ -50,6 +50,8 @@ class Config:
     control_hz: int = 20
     camera_device: str = "/dev/video0"
     prompt: str = ""
+    video_fps: int = 10
+    video_max_dim: int = 640
 
 
 # The three SPEC-2 behaviors (FR-9): a CLI shorthand (`--task`) -> the canonical prompt the
@@ -93,6 +95,8 @@ _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     "control_hz": (int,),
     "camera_device": (str,),
     "prompt": (str,),
+    "video_fps": (int,),
+    "video_max_dim": (int,),
 }
 
 

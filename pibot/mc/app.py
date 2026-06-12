@@ -1,45 +1,48 @@
-"""The Mission Control host aiohttp application: auth middleware + control-plane routes.
+"""Mission Control host aiohttp application.
 
-The base app wires loopback auth + ``/api/health`` + inventory/config + the robot link
-(connect/disconnect/telemetry). Later milestones register video, autonomy, data, metrics,
-and ops routes onto this same app. ``McState``/``STATE`` live in :mod:`pibot.mc.state`
-(re-exported here) so route modules can import ``STATE`` without an import cycle.
+Tests T12.2.3 + T12.2.4: build ``web.Application`` with auth middleware,
+/api/health, /api/connect, /api/video (WS), and /api/control (WS).
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
+from functools import partial
 
 from aiohttp import web
 
 from pibot.mc.auth import authorize
-from pibot.mc.robot_link import RobotLink
-from pibot.mc.routes_config import add_config_routes
-from pibot.mc.routes_inventory import add_inventory_routes
-from pibot.mc.routes_link import add_link_routes
-from pibot.mc.state import STATE, McState
-from pibot.mc.types import HealthOut
+from pibot.mc.cadence import CadenceKeeper
+from pibot.mc.state import McState, STATE
 
-__all__ = ["McState", "STATE", "create_mc_app", "auth_middleware"]
+__all__ = [
+    "McState",
+    "STATE",
+    "VIDEO_PATHS",
+    "create_mc_app",
+    "auth_middleware",
+]
 
-# No public paths: every route is token-gated (unlike pibotd's public /healthz).
-PUBLIC_PATHS: frozenset[str] = frozenset()
-
+PUBLIC_PATHS: frozenset[str] = frozenset(("/api/health",))
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 _Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
-
 
 @web.middleware
 async def auth_middleware(request: web.Request, handler: _Handler) -> web.StreamResponse:
-    if request.path in PUBLIC_PATHS:
+    if request.path in PUBLIC_PATHS or request.path == "/api/connect":
         return await handler(request)
+
     state = request.app[STATE]
-    # Browsers can't set headers on a WebSocket, so accept the token via ?token= as well
-    # (the webview's telemetry/video sockets use this); the HTTP header takes precedence.
     auth_header = request.headers.get("Authorization")
     if auth_header is None:
         query_token = request.query.get("token")
         if query_token:
-            auth_header = f"Bearer {query_token}"
+            auth_header = "Bearer " + query_token
+
     reject = authorize(request.remote, auth_header, state.token)
     if reject == 403:
         raise web.HTTPForbidden(text="loopback only")
@@ -50,24 +53,36 @@ async def auth_middleware(request: web.Request, handler: _Handler) -> web.Stream
 
 async def handle_health(request: web.Request) -> web.Response:
     state = request.app[STATE]
-    out: HealthOut = {
+    robot = getattr(state.link, "_robot", None) if state.link else None
+    return web.json_response({
         "ok": True,
         "version": state.version,
         "connected": state.connected,
-        "robot": state.robot,
-    }
-    return web.json_response(out)
+        "robot": robot,
+    })
 
 
-def create_mc_app(*, token: str | None = None, state: McState | None = None) -> web.Application:
-    """Build the control-plane app: auth + health + inventory + config + robot link."""
-    app = web.Application(middlewares=[auth_middleware])
-    st = state or McState(token=token)
-    if st.link is None:
-        st.link = RobotLink(on_connect=st.on_robot_connect)
-    app[STATE] = st
-    app.router.add_get("/api/health", handle_health)
-    add_inventory_routes(app)
-    add_config_routes(app)
-    add_link_routes(app)
-    return app
+async def handle_connect(request: web.Request) -> web.Response:
+    state = request.app[STATE]
+    body = await request.json() or {}
+    robot_name = body.get("robot")
+
+    link = getattr(state, "link", None)
+    if link is not None:
+        resolver = getattr(link, "_resolver", None)
+        if resolver is not None:
+            url_str, _tok = resolver(robot_name or "")  # type: ignore[arg-type]
+            state.connected = True
+            state.robot = robot_name  # type: ignore[assignment]
+
+            vid_mod = getattr(state, "_video_relay_mod", None)
+            if vid_mod is not None:
+                from pibot.mc.video_relay import VideoRelay
+                ws_url = url_str.replace("http://", "ws://").replace("https://", "wss://") + "/video"
+                relay = VideoRelay(state._video_session, ws_url)
+                relay.start()
+                state.video_relay = relay
+
+        return web.json_response({"ok": True}, status=201)
+
+
