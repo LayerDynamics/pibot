@@ -20,11 +20,12 @@ from pibot.cli import build_parser
 # Classification of every leaf command. A new command must be added here or
 # ``test_every_command_is_classified`` fails — the registry is the source of truth.
 READ = {"discover", "inventory list", "monitor", "agent status", "agent logs", "agent token"}
-# NB: `autonomy` is open-loop only today (streams obs + logs actions, no actuation) — an
-# interactive run loop like teleop. M10 adds a closed-loop actuating mode, at which point
-# it becomes state-changing and gains --dry-run (plan T10.4).
-INTERACTIVE = {"run", "connect", "tunnel", "teleop", "autonomy"}
+INTERACTIVE = {"run", "connect", "tunnel", "teleop"}
+# `autonomy` is state-changing: its closed-loop `--run` mode actuates the robot through the
+# M4 safety gate (M10 T10.4), so — like every mutating command — it must accept --dry-run to
+# preview the wiring (target, policy server, speed cap) without opening a transport or camera.
 STATE_CHANGING = {
+    "autonomy",
     "cmd",
     "estop",
     "push",
