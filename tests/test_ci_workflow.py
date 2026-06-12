@@ -37,6 +37,15 @@ def test_ci_has_a_firmware_compile_job() -> None:
     assert "arduino-cli" in blob and "compile" in blob
 
 
+def test_ci_has_a_desktop_app_job() -> None:
+    """The desktop app (SPEC-3/M12) has a CI job running the frontend + Rust gates."""
+    doc = yaml.safe_load(CI.read_text(encoding="utf-8"))
+    blob = str(doc["jobs"]).lower()
+    assert "pnpm" in blob, "no pnpm (frontend) gate in CI"
+    assert "pnpm typecheck" in blob or "typecheck" in blob
+    assert "clippy" in blob, "no cargo clippy (Rust) gate in CI"
+
+
 def test_ci_keeps_hardware_tests_manual_only() -> None:
     text = CI.read_text(encoding="utf-8")
     # Never point CI at a real Pi — hardware-marked tests must skip in CI.

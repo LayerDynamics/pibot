@@ -26,5 +26,22 @@ echo "== mypy =="
 echo "== pytest (with coverage gate) =="
 "$PYTEST" --cov=pibot --cov=agent --cov-report=term-missing
 
+# Desktop app gate (PiBot Mission Control — SPEC-3 / M12). Runs when the JS/Rust
+# toolchain is present so Python-only contributors aren't blocked; CI runs it on macOS.
+if [ -d app ] && command -v pnpm >/dev/null 2>&1; then
+  echo "== desktop app: frontend lint + typecheck + test =="
+  ( cd app && pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 \
+      && pnpm lint && pnpm typecheck && pnpm test )
+  if command -v cargo >/dev/null 2>&1; then
+    echo "== desktop app: cargo fmt + clippy + test =="
+    ( cd app/src-tauri && cargo fmt --check \
+        && cargo clippy --all-targets -- -D warnings && cargo test )
+  else
+    echo "== desktop app: cargo gate skipped (no cargo) =="
+  fi
+else
+  echo "== desktop app gate skipped (no app/ or pnpm) =="
+fi
+
 echo ""
 echo "ALL GATES PASSED"

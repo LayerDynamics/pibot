@@ -22,6 +22,21 @@ fn sidecar_command(token: &str) -> Vec<String> {
         argv.push(token.to_string());
         return argv;
     }
+    // Packaged build: the externalBin sidecar sits next to the app executable
+    // (Tauri strips the target triple from the bundled name).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(sidecar) = exe.parent().map(|d| d.join("pibot-mc-host")) {
+            if sidecar.exists() {
+                return vec![
+                    sidecar.to_string_lossy().into_owned(),
+                    "--port".into(),
+                    "0".into(),
+                    "--token".into(),
+                    token.to_string(),
+                ];
+            }
+        }
+    }
     let manifest = env!("CARGO_MANIFEST_DIR"); // <repo>/app/src-tauri
     let repo = format!("{manifest}/../..");
     let py = format!("{repo}/.venv/bin/python");

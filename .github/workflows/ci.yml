@@ -62,3 +62,36 @@ jobs:
           # (marker 'toolchain'), so select them explicitly now that the cores are installed.
           .venv/bin/pytest tests/test_echo_roundtrip.py -q
           .venv/bin/pytest -o addopts="" -m toolchain tests/test_firmware_compiles.py -q
+
+  desktop:
+    name: Desktop app (frontend lint/typecheck/test + Rust gate)
+    # The PiBot Mission Control app (SPEC-3 / M12) targets macOS; Tauri's Rust build
+    # needs the platform webview, so this job runs on macOS.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend deps
+        run: cd app && pnpm install --frozen-lockfile
+      - name: Frontend gate (lint + typecheck + test)
+        run: |
+          cd app
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+      - name: Rust gate (fmt + clippy + test)
+        # Uses the committed Cargo.lock (time pinned to 0.3.47) so the cookie/time
+        # build break can't recur in CI.
+        run: |
+          cd app/src-tauri
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test

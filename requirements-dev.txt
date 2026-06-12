@@ -7,3 +7,6 @@ ruff
 mypy
 pytest
 pytest-cov
+# Bundles the pibot.mc sidecar into a standalone binary for the Tauri app's externalBin
+# (SPEC-3 / M12.1 T12.1.7). Only needed for `app/scripts/build-sidecar.sh`.
+pyinstaller
