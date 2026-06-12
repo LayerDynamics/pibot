@@ -44,3 +44,66 @@ pibot monitor pibot --once        # transport idle; e-stop not needed; robot did
 | 2 | Server accepts the obs schema | ⬜ pending | |
 | 3 | End-to-end latency on real data | ⬜ pending | |
 | 4 | **Zero actuation** (motors never moved) | ⬜ pending | |
+
+---
+
+# Closed-loop drive — first motion under the policy (M10 T10.6)
+
+The first time the robot moves under the **fine-tuned** policy. Every action still passes the
+M4 safety gate (clamp + latched e-stop + deadman) — proven in-process by
+`tests/test_autonomy_safety.py` and `tests/test_autonomy_drop_to_stop.py` — but in-process
+proof is not hardware proof. Run tethered, at the lowest clamps, with the e-stop **in your
+hand**, and finish by physically stalling the link to confirm the robot stops (SPEC-2 §4.3, R-3).
+
+> **Status: PENDING — not yet run on hardware.** Needs the fine-tuned checkpoint served
+> ([finetune-and-serve.md](finetune-and-serve.md)) + the reflashed robot. Software gate-green
+> (`pibot autonomy --run`, gated through `agent.safety.AgentSafety`).
+
+## Prerequisites
+- T10.5 done: a **fine-tuned** checkpoint served on the Mac's Nebula IP:8000. Never closed-loop
+  on a stock checkpoint (FR-18, R-2).
+- Robot tethered or on blocks first; clear floor; e-stop reachable.
+- `config.toml`: `policy_host` = the Mac's Nebula IP, `transport`/`robot_host` = the ESP32 link.
+
+## 1. Dry-run the plan (sends nothing)
+Confirm the wiring — target, policy server, speed cap — before any motor can turn:
+```bash
+pibot autonomy pibot --run --prompt "drive to the red ball" --max-speed 0.2 --dry-run
+```
+
+## 2. Drive, lowest speed, e-stop in hand
+The governor only ever lowers the clamp, never raises it — start at `--max-speed 0.2`:
+```bash
+pibot autonomy pibot --run --prompt "drive to the red ball" --max-speed 0.2
+```
+Watch for sane, smooth motion toward the goal. Hit the e-stop at the first surprise; a latched
+e-stop drops every policy drive (regression-proven).
+
+## 3. Hardware drop-to-stop
+With the robot driving, **physically stall the link** (pull the Mac off Nebula / kill the
+server / block WiFi). The control loop blocks waiting on the next inference, so on a **hard
+stall it is the firmware watchdog** (independent, on the ESP32) that halts the motors — do
+*not* expect a host `stop` frame in this case. The host deadman covers the other failure mode:
+the loop alive but not feeding accepted commands (e.g. a malformed/empty chunk), where it emits
+a `stop` within `watchdog_ms`. Either way the robot must come to rest — confirm it physically
+halts.
+
+## Verify
+```bash
+# 1. dry-run prints the plan and opens no transport/camera/socket
+pibot autonomy pibot --run --prompt "drive to the red ball" --max-speed 0.2 --dry-run
+# 2. after a real run, the e-stop latch + deadman behaviour is the SAME path the tests prove:
+.venv/bin/pytest tests/test_autonomy_safety.py tests/test_autonomy_drop_to_stop.py -q
+# 3. hardware drop-to-stop: stall the link mid-drive and confirm the robot physically halts
+#    (firmware watchdog is primary on a hard stall; the host deadman covers loop-alive-but-quiet)
+pibot monitor pibot --once        # robot stationary after the stall
+```
+
+## Closed-loop results
+| # | Check | Status | Notes |
+|---|-------|--------|-------|
+| 1 | Dry-run previews, actuates nothing | ⬜ pending | |
+| 2 | ≥1 task completes closed-loop (tethered, low speed) | ⬜ pending | task: drive-to-red-ball |
+| 3 | Latched e-stop blocks policy drive (on hardware) | ⬜ pending | |
+| 4 | **Hardware drop-to-stop** on a stalled link | ⬜ pending | hard stall → firmware watchdog halts motors |
+| 5 | No safety bypass observed | ⬜ pending | |

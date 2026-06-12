@@ -20,6 +20,7 @@ from pibot import monitor as monitor_mod
 from pibot.config import Config, load_config
 from pibot.connection import commands, keys, sshcmd, transfer, tunnel, user
 from pibot.control import oneshot
+from pibot.control.safety import Limits
 from pibot.control.sequence import load_sequence
 from pibot.deploy import service as deploy_service
 from pibot.deploy import sync as deploy_sync
@@ -383,6 +384,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_auto.add_argument(
         "--out", default=argparse.SUPPRESS, help="dataset output dir (with --record)"
     )
+    p_auto.add_argument(
+        "--run",
+        action="store_true",
+        dest="run",
+        default=False,
+        help="closed-loop: the VLA drives the robot through the M4 safety gate",
+    )
+    p_auto.add_argument(
+        "--max-speed",
+        type=float,
+        dest="max_speed",
+        default=None,
+        help="governor: cap |v| (m/s); never raises above the hardware limit",
+    )
+    _add_dry_run(p_auto)  # --run is state-changing: preview the wiring without actuating
     p_auto.set_defaults(func=cmd_autonomy)
 
     return parser
@@ -926,12 +942,68 @@ def _run_record(cfg: Config, inv: Inventory, target: str, prompt: str, out: str)
         camera.close()
 
 
+def _autonomy_limits(max_speed: float | None) -> Limits:
+    """The speed cap for closed-loop autonomy: the governor only ever *lowers* the limit.
+
+    Asking for more than the hardware limit cannot make the robot faster — ``--max-speed`` is a
+    one-way valve toward safety, never away from it.
+    """
+    base = Limits()
+    if max_speed is None:
+        return base
+    if max_speed < 0:
+        raise UsageError("max-speed must be non-negative")
+    return Limits(max_v=min(max_speed, base.max_v), max_w=base.max_w)
+
+
+def _run_closed_loop(
+    cfg: Config, inv: Inventory, target: str, prompt: str, *, max_speed: float | None, dry_run: bool
+) -> int:
+    """Closed-loop autonomy: the remote VLA drives the robot through the M4 safety gate."""
+    address = inv.resolve(target)  # validate the robot exists in the inventory
+    cfg.prompt = prompt
+    limits = _autonomy_limits(max_speed)
+    # The policy server (the VLA host, e.g. the Mac over Nebula) is NOT the robot — it must be
+    # configured explicitly; we never fall back to the robot's address as the policy host.
+    if dry_run:
+        print(
+            f"[dry-run] closed-loop autonomy -> {target} ({address}): "
+            f"policy {cfg.policy_host or '<unset>'}:{cfg.policy_port}, prompt={prompt!r}, "
+            f"max |v|={limits.max_v} m/s, max |w|={limits.max_w} rad/s @ {cfg.control_hz}Hz "
+            f"(transport={cfg.transport}) — no transport/camera/socket opened"
+        )
+        return 0
+    if not cfg.policy_host:
+        raise UsageError(
+            "no policy server: set policy_host in config (the VLA server, e.g. the Mac over Nebula)"
+        )
+
+    from pibot.ml.camera import Camera
+    from pibot.ml.closed_loop import run_closed_loop
+
+    camera = Camera(cfg.camera_device)
+    camera.open()
+    try:
+        return run_closed_loop(cfg, camera, limits=limits, control_hz=cfg.control_hz)
+    finally:
+        camera.close()
+
+
 def cmd_autonomy(args: argparse.Namespace) -> int:
     cfg, inv = _context()
     prompt = getattr(args, "prompt", None) or cfg.prompt
+    if getattr(args, "run", False):
+        return _run_closed_loop(
+            cfg,
+            inv,
+            args.target,
+            prompt,
+            max_speed=getattr(args, "max_speed", None),
+            dry_run=getattr(args, "dry_run", False),
+        )
     if getattr(args, "open_loop", False):
         return _run_open_loop(cfg, inv, args.target, prompt)
     if getattr(args, "record", False):
         out = getattr(args, "out", None) or "demos"
         return _run_record(cfg, inv, args.target, prompt, out)
-    raise UsageError("closed-loop autonomy is gated to M10; use --open-loop or --record")
+    raise UsageError("choose an autonomy mode: --run (closed-loop), --open-loop, or --record")

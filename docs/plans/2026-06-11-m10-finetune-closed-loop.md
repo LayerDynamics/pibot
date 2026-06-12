@@ -10,7 +10,7 @@
 | **Depends on** | M9 (transforms + dataset) |
 | **Branch** | `m10-finetune-closed-loop` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started (planned — no code yet) |
+| **Status** | Software shipped (T10.1–T10.4, gate-green 613 passed); HIL pending hardware (T10.5 fine-tune+serve, T10.6 closed-loop drive). Deviation: closed-loop actuation landed as a `ClosedLoopEnvironment` subclass in `pibot/ml/closed_loop.py` (keeps the open-loop env's `NotImplementedError` guard intact) rather than mutating `pibot_environment.apply_action` — same safety-gated outcome; bypass + drop-to-stop regressions green. |
 
 **Goal:** The robot **drives itself** on ≥1 prompted task from a fine-tuned π₀.₅ — every action through the M4 safety gate, with verified drop-to-stop.
 **Architecture:** `apply_action` → `_action_to_command` → **M4 safety gate** → M3 transport; a fine-tuned checkpoint served from the M4 Max; the policy is provably *behind* safety and stops on stall.
