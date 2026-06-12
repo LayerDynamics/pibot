@@ -57,7 +57,7 @@ class EpisodeLogger:
         """The records grouped into per-episode lists, in order."""
         grouped: list[list[StepRecord]] = []
         for rec in self._records:
-            while rec.episode >= len(grouped):
+            if rec.episode >= len(grouped):
                 grouped.append([])
             grouped[rec.episode].append(rec)
         return grouped
