@@ -190,8 +190,8 @@ A **remote-brain / on-robot-client** split (openpi's native client-server model)
 - **Responsibility:** encrypted, stable Mac↔Pi addressing for the policy link (and SSH/deploy).
 
 ### 3.3 Data Model
-- **Observation:** `{"image": {"base_0_rgb": uint8[224,224,3]}, "state": float[state_dim], "prompt": str}`. `state` = encoders / IMU / battery from M3 telemetry (`state_dim` TBD — see Open Questions).
-- **Action chunk (server → client):** `{"actions": float[action_horizon, action_dim]}`; the broker emits one `float[action_dim]` per step. `action_dim` maps to `[v, ω, servo…]` (PiBot space) via `PibotOutputs`.
+- **Observation:** `{"image": {"base_0_rgb": uint8[224,224,3]}, "state": float[2], "prompt": str}`. **state = `[v, ω]`** — the last commanded velocity (the rover's proprioceptive motion state; the current firmware has no encoders/IMU, so last-velocity is the meaningful proprioception). `state_dim = 2` (OQ-2, resolved 2026-06-12); extends if the firmware gains encoders/IMU.
+- **Action chunk (server → client):** `{"actions": float[action_horizon, 2]}`; the broker emits one `float[2]` per step. **action = `[v, ω]`** (`action_dim = 2`) → `drive(v, ω)` via `PibotOutputs`. The firmware's 2 servos are excluded from the V1 action space (extensible).
 - **Demonstration dataset:** LeRobot episodes — sequences of `(observation, action, timestamp)`; one episode per recorded teleop run, tagged with the task prompt.
 - **Lifecycle:** obs is ephemeral (per step); demonstrations are appended during collection, converted to a dataset, consumed by fine-tuning, then immutable; checkpoints are versioned on the server.
 
@@ -347,7 +347,7 @@ SPEC-1 (M0–M6, done)
 | # | Question | Owner | Due |
 |---|----------|-------|-----|
 | OQ-1 | Exact closed-loop success-rate target + trial count per task | Ryan | before M10 |
-| OQ-2 | `state_dim`/`action_dim` — which telemetry fields feed `state`, how many servo channels in the action | Ryan | M9 |
+| OQ-2 | ✅ RESOLVED (2026-06-12): `state = [v, ω]` (last commanded velocity, dim 2), `action = [v, ω]` (dim 2); servos excluded from V1 (no encoders/IMU in firmware). Revisit if encoders/IMU/servos are added. | Ryan | done |
 | OQ-3 | USB camera model, FOV, and mounting position (forward-facing height/angle) | Ryan | M8 |
 | OQ-4 | Number of demonstrations per task needed for a usable fine-tune | Ryan | M9 |
 | OQ-5 | Add an `api_key` on the policy websocket, or rely on Nebula encryption alone? | Ryan | M10 |
@@ -374,12 +374,12 @@ SPEC-1 (M0–M6, done)
 // observation (client -> server)
 {
   "image": { "base_0_rgb": "uint8[224,224,3]" },
-  "state": "float[state_dim]",      // OQ-2: encoders / IMU / battery
+  "state": "float[2]",              // [v, w] — last commanded velocity (OQ-2 resolved)
   "prompt": "string"                // e.g. "drive to the red ball" | "follow me" | "explore"
 }
 // inference reply (server -> client)
 {
-  "actions": "float[action_horizon, action_dim]",  // action_dim -> [v, w, servo...] via PibotOutputs
+  "actions": "float[action_horizon, 2]",  // each step -> [v, w] -> drive(v, w) via PibotOutputs
   "server_timing": { "infer_ms": "float" }
 }
 ```
