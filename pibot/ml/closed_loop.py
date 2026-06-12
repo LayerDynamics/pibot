@@ -48,9 +48,12 @@ class ClosedLoopEnvironment(PibotEnvironment):
     def _action_to_command(self, vec: list[float]) -> Message | None:
         if len(vec) < 2:
             return None  # not a valid drive — actuate nothing, let the deadman stop
-        return Message(
-            MessageType.COMMAND, self._seq.next(), "drive", {"v": float(vec[0]), "w": float(vec[1])}
-        )
+        try:
+            return Message(
+                MessageType.COMMAND, self._seq.next(), "drive", {"v": float(vec[0]), "w": float(vec[1])}
+            )
+        except (ValueError, TypeError):
+            return None
 
     def _send_stop(self) -> None:
         self._submit(Message(MessageType.COMMAND, self._seq.next(), "stop", {}))
