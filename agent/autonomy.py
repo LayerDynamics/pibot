@@ -121,7 +121,7 @@ class AutonomyController:
     async def stop(self) -> None:
         if self._task is not None:
             self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            with contextlib.suppress(Exception):
                 await self._task
             self._task = None
         self._outbox.clear()
