@@ -68,6 +68,21 @@ A `moves.yaml` is a list of timed steps:
 See [runbooks/e-stop.md](runbooks/e-stop.md) and
 [runbooks/wireless-bringup.md](runbooks/wireless-bringup.md).
 
+## Autonomy (VLA policy — SPEC-2)
+
+The robot streams camera + state observations to a remote policy server (the M4 Max) and
+the model drives. Open-loop bring-up logs the policy's actions **without actuating** (the
+gate before any closed-loop motion); closed-loop, safety-gated driving lands in M10.
+
+```bash
+pibot autonomy pibot --open-loop --prompt "drive to the red ball"   # log actions, no motion
+pibot autonomy pibot --open-loop --prompt "follow me"
+```
+
+Set the policy server + camera in `~/.config/pibot/config.toml` (`policy_host`,
+`policy_port`, `camera_device`, `action_horizon`, `control_hz`). See
+[SPEC-2](specs/SPEC-2-pibot-autonomy-platform.md) and the autonomy runbooks.
+
 ## The agent, telemetry & deploy
 
 ```bash

@@ -23,6 +23,7 @@ RUNBOOKS = [
     "wireless-bringup.md",
     "nebula-overlay.md",
     "autonomy-runtime.md",
+    "autonomy-bringup.md",
 ]
 
 # Every markdown doc we own and lint (runbooks + top-level user docs).

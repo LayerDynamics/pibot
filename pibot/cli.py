@@ -363,6 +363,19 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dry_run(p_play)
     p_play.set_defaults(func=cmd_play)
 
+    # ---- autonomy (VLA policy) ----
+    p_auto = sub.add_parser("autonomy", parents=[g, t], help="run the VLA autonomy loop")
+    p_auto.add_argument("target")
+    p_auto.add_argument(
+        "--open-loop",
+        action="store_true",
+        dest="open_loop",
+        default=argparse.SUPPRESS,
+        help="stream observations + log actions, NO actuation (bring-up gate)",
+    )
+    p_auto.add_argument("--prompt", default=argparse.SUPPRESS, help="task prompt for the policy")
+    p_auto.set_defaults(func=cmd_autonomy)
+
     return parser
 
 
@@ -857,3 +870,47 @@ def cmd_play(args: argparse.Namespace) -> int:
             print(f"  t={step.at:>6.2f}s  {step.cmd} {args_str}".rstrip())
         return 0
     return _drive_sequence(cfg, inv, args.target, steps, rate)
+
+
+# ---- autonomy (VLA policy) -----------------------------------------------
+
+
+def _run_open_loop(cfg: Config, inv: Inventory, target: str, prompt: str) -> int:
+    """Open-loop autonomy: camera + telemetry -> policy server, log actions, NO actuation."""
+    from pibot.ml.camera import Camera
+    from pibot.ml.openloop import run_open_loop
+
+    address = inv.resolve(target)
+    camera = Camera(cfg.camera_device)
+    camera.open()
+
+    def state_fn() -> list[float]:
+        # robot state vector for the observation (OQ-2: which telemetry fields) — wired to
+        # the agent's live telemetry on the robot; the open-loop run reads it each step.
+        from agent.telemetry import read_system_stats
+
+        stats = read_system_stats() or {}
+        cpu = stats.get("cpu_pct")
+        mem = stats.get("mem_pct")
+        return [
+            float(cpu) if cpu is not None else 0.0,
+            float(mem) if mem is not None else 0.0,
+        ]
+
+    def log_step(obs: dict | None, action: dict) -> None:
+        _log.info("open-loop step: prompt=%r action=%s", prompt, action)
+
+    cfg.policy_host = cfg.policy_host or address
+    cfg.prompt = prompt
+    try:
+        return run_open_loop(cfg, camera, state_fn, on_step=log_step)
+    finally:
+        camera.close()
+
+
+def cmd_autonomy(args: argparse.Namespace) -> int:
+    cfg, inv = _context()
+    prompt = getattr(args, "prompt", None) or cfg.prompt
+    if getattr(args, "open_loop", False):
+        return _run_open_loop(cfg, inv, args.target, prompt)
+    raise UsageError("closed-loop autonomy is gated to M10; run with --open-loop for now")
