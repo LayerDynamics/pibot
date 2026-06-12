@@ -28,8 +28,18 @@ inventory.local.toml
 firmware/**/secrets.h
 secrets.h
 
+# OS images for flashing (large binaries — never commit)
+/images/
+
 # OS
 .DS_Store
 resources
 # web-research skill output
 .web-research/
+
+# Desktop app (PiBot Mission Control — SPEC-3 / M12)
+app/node_modules/
+app/dist/
+app/coverage/
+app/src-tauri/target/
+app/src-tauri/gen/
