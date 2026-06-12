@@ -115,6 +115,8 @@ def run_closed_loop(  # pragma: no cover - hardware: real transport + policy ser
                 if sleep_time > 0:
                     time.sleep(sleep_time)
     finally:
-        env.reset()  # always leave the robot stopped
-        transport.close()
+        try:
+            env.reset()  # always leave the robot stopped
+        finally:
+            transport.close()
     return 0
