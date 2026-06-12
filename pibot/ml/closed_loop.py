@@ -21,7 +21,9 @@ SubmitFn = Callable[[Message], tuple[bool, str]]
 
 def _action_vector(action: Any) -> list[float]:
     vec = action.get("actions") if isinstance(action, dict) else action
-    return list(vec) if vec is not None else []
+    if vec is not None and hasattr(vec, "__iter__"):
+        return list(vec)
+    return []
 
 
 class ClosedLoopEnvironment(PibotEnvironment):
