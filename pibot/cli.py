@@ -951,6 +951,8 @@ def _autonomy_limits(max_speed: float | None) -> Limits:
     base = Limits()
     if max_speed is None:
         return base
+    if max_speed < 0:
+        raise UsageError("max-speed must be non-negative")
     return Limits(max_v=min(max_speed, base.max_v), max_w=base.max_w)
 
 
