@@ -20,7 +20,10 @@ from pibot.cli import build_parser
 # Classification of every leaf command. A new command must be added here or
 # ``test_every_command_is_classified`` fails — the registry is the source of truth.
 READ = {"discover", "inventory list", "monitor", "agent status", "agent logs", "agent token"}
-INTERACTIVE = {"run", "connect", "tunnel", "teleop"}
+# NB: `autonomy` is open-loop only today (streams obs + logs actions, no actuation) — an
+# interactive run loop like teleop. M10 adds a closed-loop actuating mode, at which point
+# it becomes state-changing and gains --dry-run (plan T10.4).
+INTERACTIVE = {"run", "connect", "tunnel", "teleop", "autonomy"}
 STATE_CHANGING = {
     "cmd",
     "estop",
