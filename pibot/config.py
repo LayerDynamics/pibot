@@ -24,6 +24,11 @@ class Config:
     default_user: str | None = None
     identity: str | None = None
     transport: str = "serial"
+    encoding: str = "ascii"
+    tcp_port: int = 3333
+    serial_port: str = "/dev/ttyACM0"
+    serial_baud: int = 115200
+    cmd_timeout: float = 1.0
     teleop_rate_hz: int = 20
     watchdog_ms: int = 300
     temp_warn_c: float = 80.0
@@ -39,6 +44,11 @@ _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     "default_user": (str,),
     "identity": (str,),
     "transport": (str,),
+    "encoding": (str,),
+    "tcp_port": (int,),
+    "serial_port": (str,),
+    "serial_baud": (int,),
+    "cmd_timeout": (float, int),
     "teleop_rate_hz": (int,),
     "watchdog_ms": (int,),
     "temp_warn_c": (float, int),

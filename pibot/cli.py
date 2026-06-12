@@ -18,6 +18,7 @@ from pathlib import Path
 from pibot import discovery
 from pibot.config import Config, load_config
 from pibot.connection import commands, keys, transfer, tunnel
+from pibot.control import oneshot
 from pibot.errors import PibotError, UsageError
 from pibot.inventory import Inventory, InventoryRecord
 from pibot.logging import configure_logging, get_logger
@@ -253,6 +254,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_fw_flash.add_argument("--fqbn", required=True, help="e.g. arduino:avr:uno")
     p_fw_flash.add_argument("--port", required=True, help="e.g. /dev/ttyACM0")
     p_fw_flash.set_defaults(func=cmd_firmware_flash)
+
+    # ---- control ----
+    _transports = ["serial", "tcp", "responder", "loopback"]
+    p_cmd = sub.add_parser("cmd", parents=[g], help="send one command to the robot")
+    p_cmd.add_argument("target")
+    p_cmd.add_argument("command", help="drive|servo|motor|stop|estop|ping|set")
+    p_cmd.add_argument("args", nargs="*", help="command arguments, e.g. 0.5 0.0")
+    p_cmd.add_argument(
+        "--transport",
+        dest="transport_override",
+        choices=_transports,
+        default=argparse.SUPPRESS,
+        help="override the configured transport",
+    )
+    p_cmd.set_defaults(func=cmd_cmd)
+
+    p_estop = sub.add_parser("estop", parents=[g], help="emergency-stop the robot")
+    p_estop.add_argument("target")
+    p_estop.add_argument(
+        "--transport", dest="transport_override", choices=_transports, default=argparse.SUPPRESS
+    )
+    p_estop.set_defaults(func=cmd_estop)
 
     return parser
 
@@ -529,3 +552,31 @@ def cmd_firmware_build(args: argparse.Namespace) -> int:
 
 def cmd_firmware_flash(args: argparse.Namespace) -> int:
     return firmware.flash(args.sketch, fqbn=args.fqbn, port=args.port)
+
+
+# ---- control -------------------------------------------------------------
+
+
+def _control_context(args: argparse.Namespace) -> tuple[Config, Inventory]:
+    cfg, inv = _context()
+    override = getattr(args, "transport_override", None)
+    if override:
+        cfg.transport = override
+    return cfg, inv
+
+
+def cmd_cmd(args: argparse.Namespace) -> int:
+    cfg, inv = _control_context(args)
+    return oneshot.cmd(
+        args.target,
+        args.command,
+        list(args.args),
+        cfg=cfg,
+        inventory=inv,
+        as_json=getattr(args, "json", False),
+    )
+
+
+def cmd_estop(args: argparse.Namespace) -> int:
+    cfg, inv = _control_context(args)
+    return oneshot.estop(args.target, cfg=cfg, inventory=inv, as_json=getattr(args, "json", False))
