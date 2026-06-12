@@ -59,7 +59,7 @@ def render_snapshot(snap: dict[str, Any], alerts: list[str]) -> list[str]:
     disk = pi.get("disk", {})
     battery_v = robot.get("battery", {}).get("volts")
     estop = snap.get("safety", {}).get("estop")
-    policy = snap.get("policy", {})
+    policy = snap.get("policy") or {}
     lines = [
         f"temp {pi.get('temp_c')}°C  core {pi.get('core_volt')}V  "
         f"cpu {pi.get('cpu_pct')}%  mem {pi.get('mem_pct')}%  disk {disk.get('pct')}%",
