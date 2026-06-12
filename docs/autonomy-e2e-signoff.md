@@ -35,10 +35,10 @@ pibot autonomy pibot --run --task goal --max-speed 0.2 --dry-run
 pibot autonomy pibot --run --task goal     --max-speed 0.2   # "drive to the red ball"
 pibot autonomy pibot --run --task follow   --max-speed 0.2   # "follow me"
 pibot autonomy pibot --run --task explore  --max-speed 0.2   # "explore the room"
-# 4. policy-link health while driving (T11.1): LOGGED BY the `pibot autonomy --run` process
-#    (`autonomy step: policy={'connected': True, 'last_inference_ms': …}`). It does NOT yet
-#    reach `pibot monitor` — see the open decision below.
-# 5. drop-to-stop: stall the link mid-drive; firmware watchdog halts the motors
+# 4. policy-link health while driving (T11.1) is LIVE in monitor (autonomy is in-process):
+pibot monitor pibot --once          # policy connected=True infer …ms chunk_age …ms
+# 5. drop-to-stop: stall the link mid-drive; the host deadman stops the robot within watchdog_ms
+#    (inference is off-thread, so the agent's ticker keeps running), firmware watchdog backstops
 # 6. power-loss: yank power mid-run; NVMe survives, the robot boots back to a safe stop
 ```
 
@@ -49,29 +49,36 @@ pibot autonomy pibot --run --task explore  --max-speed 0.2   # "explore the room
 | 1 | drive-to-goal closed-loop | ⬜ pending | | |
 | 2 | follow closed-loop | ⬜ pending | | |
 | 3 | explore closed-loop | ⬜ pending | | |
-| 4 | policy-link health logged by the runner | ⬜ pending | | `monitor` feed: pending integration (below) |
-| 5 | hardware drop-to-stop on a stalled link | ⬜ pending | | firmware watchdog primary |
+| 4 | policy-link health LIVE in `monitor` | ⬜ pending | | fed by the in-process loop |
+| 5 | hardware drop-to-stop on a stalled link | ⬜ pending | | host deadman ≤ watchdog_ms; firmware backstops |
 | 6 | power-loss survived (NVMe + safe reboot) | ⬜ pending | | |
 | 7 | no safety bypass observed across all runs | ⬜ pending | | |
 
-## Open decision — autonomy process model (affects steps 4 & 5)
+## Architecture — autonomy runs in-process inside pibotd (decision resolved)
 
-`run_closed_loop` today builds its **own** transport + its **own** `AgentSafety` (a *standalone*
-process). Two consequences this sign-off must not paper over:
+The earlier open question (standalone runner vs in-process) is **resolved: in-process.**
+Closed-loop autonomy is an `AutonomyController` task *inside* pibotd, driving through the agent's
+**single** `TransportController` + `AgentSafety` — the same gate teleop uses (`POST /autonomy`
+starts it, `DELETE /autonomy` stops it; `pibot autonomy --run` is a thin client). Consequences,
+all now proven in-process (`tests/test_autonomy_agent.py`, `tests/test_agent_endpoints.py`):
 
-- **Policy-link telemetry feed.** `agent/telemetry.py`'s `PolicyLink` schema/render/threshold/CSV
-  are done and unit-proven (T11.1), but nothing feeds the live block into the snapshot pibotd
-  serves — `assemble_snapshot` is called once (`agent/app.py`) with no `policy` arg, so
-  `pibot monitor` always shows `connected=None`. Live policy health is only in the runner's logs.
-- **Concurrency with pibotd.** Running `pibot autonomy --run` and `pibot monitor` at once needs
-  pibotd live *beside* the runner. On a **serial** ESP32 link `/dev/ttyACM0` is exclusive — both
-  can't open it — and two `AgentSafety` gates on two connections violates `agent/safety.py`'s
-  stated invariant ("the single place every command passes before the transport").
+- **Policy-link telemetry is live.** The loop feeds the shared `PolicyLink` in `AgentState`, so
+  `assemble_snapshot` carries the real block and `pibot monitor` shows `connected/infer/chunk_age`
+  while driving — and flags `policy down` / stale chunk.
+- **One transport, one safety gate.** No `/dev/ttyACM0` contention and no second `AgentSafety` —
+  `agent/safety.py`'s "single place every command passes" invariant holds; a policy drive is
+  clamped + e-stop-gated exactly like teleop.
+- **Stall → host stop.** Inference runs in `asyncio.to_thread`, so a wedged policy never blocks
+  the event loop; the controller's deadman ticker keeps running and stops the robot within
+  `watchdog_ms`, with the firmware watchdog as the independent backstop (regression:
+  `test_autonomy_agent.py::test_stalled_policy_still_drops_to_stop_via_the_agent_deadman`).
 
-**Resolution path (post-SPEC-2):** run closed-loop autonomy *in-process inside pibotd* — one
-transport, one `AgentSafety`, and feeding the telemetry `PolicyLink` becomes trivial — or keep it
-standalone and accept that `monitor` does not show policy health during a run. Decide before
-relying on step 4 via `monitor`; until then, treat the runner's logs as the source of truth.
+**Known trade-off (liveness).** In-process means the loop **outlives the client**: a hard
+crash/kill of `pibot autonomy --run` leaves pibotd driving a *healthy* policy with nobody
+watching (graceful `Ctrl-C` issues `DELETE /autonomy`; a SIGKILL does not). E-stop, the deadman,
+and the firmware watchdog still backstop a *stalled* policy — not a healthy one. A client-liveness
+heartbeat (tie the loop to the telemetry connection, or an autonomy keepalive) is a deliberate
+follow-up, not yet built; until then halt out-of-band with `pibot estop` / `DELETE /autonomy`.
 
 ## Verify
 

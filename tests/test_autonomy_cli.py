@@ -30,17 +30,15 @@ def test_run_and_dry_run_flags_parse() -> None:
     assert args.max_speed == 0.4
 
 
-def test_dry_run_previews_without_touching_hardware(monkeypatch, capsys) -> None:
-    # If the closed-loop runner were invoked it would open a transport/camera — assert it is NOT.
+def test_dry_run_previews_without_touching_the_agent(monkeypatch, capsys) -> None:
+    # --run drives via pibotd; --dry-run must print the plan and contact the agent NOT at all.
     import pibot.cli as cli
 
     def _boom(*a, **k):  # pragma: no cover - must never be called on a dry run
-        raise AssertionError("dry-run must not start the closed-loop runner")
+        raise AssertionError("dry-run must not contact the agent")
 
-    monkeypatch.setattr(
-        cli, "_context", lambda: (Config(policy_host="mac", policy_port=8000), _Inv())
-    )
-    monkeypatch.setattr("pibot.ml.closed_loop.run_closed_loop", _boom, raising=False)
+    monkeypatch.setattr(cli, "_context", lambda: (Config(), _Inv()))
+    monkeypatch.setattr(cli, "_drive_via_agent", _boom)
 
     args = _parse(
         ["autonomy", "pibot", "--run", "--dry-run", "--prompt", "go", "--max-speed", "0.5"]
@@ -50,8 +48,9 @@ def test_dry_run_previews_without_touching_hardware(monkeypatch, capsys) -> None
     out = capsys.readouterr().out
     assert rc == 0
     assert "dry-run" in out
-    assert "mac:8000" in out  # the policy server it would connect to
+    assert "192.168.1.99" in out  # the robot it would drive (via pibotd)
     assert "0.5" in out  # the speed cap it would enforce
+    assert "go" in out  # the prompt
 
 
 def test_max_speed_only_lowers_the_cap_never_raises_it() -> None:
@@ -65,14 +64,21 @@ def test_max_speed_only_lowers_the_cap_never_raises_it() -> None:
     assert _autonomy_limits(None).max_w == base.max_w
 
 
-def test_run_without_dry_run_needs_a_policy_host(monkeypatch) -> None:
+def test_run_dispatches_to_the_agent(monkeypatch) -> None:
+    # Without --dry-run, --run hands prompt + governor to the agent driver (pibotd owns the loop).
     import pibot.cli as cli
-    from pibot.errors import UsageError
 
-    monkeypatch.setattr(cli, "_context", lambda: (Config(policy_host=""), _Inv()))
-    args = _parse(["autonomy", "pibot", "--run"])
-    with pytest.raises(UsageError, match="policy"):
-        cmd_autonomy(args)
+    called: dict = {}
+
+    def _fake_drive(cfg, inv, target, prompt, max_speed):
+        called.update(target=target, prompt=prompt, max_speed=max_speed)
+        return 0
+
+    monkeypatch.setattr(cli, "_context", lambda: (Config(), _Inv()))
+    monkeypatch.setattr(cli, "_drive_via_agent", _fake_drive)
+    args = _parse(["autonomy", "pibot", "--run", "--prompt", "go fast", "--max-speed", "0.3"])
+    assert cmd_autonomy(args) == 0
+    assert called == {"target": "pibot", "prompt": "go fast", "max_speed": 0.3}
 
 
 class _Inv:
