@@ -889,8 +889,13 @@ def _run_open_loop(cfg: Config, inv: Inventory, target: str, prompt: str) -> int
         # the agent's live telemetry on the robot; the open-loop run reads it each step.
         from agent.telemetry import read_system_stats
 
-        stats = read_system_stats()
-        return [float(stats.get("cpu_pct", 0.0)), float(stats.get("mem_pct", 0.0))]
+        stats = read_system_stats() or {}
+        cpu = stats.get("cpu_pct")
+        mem = stats.get("mem_pct")
+        return [
+            float(cpu) if cpu is not None else 0.0,
+            float(mem) if mem is not None else 0.0,
+        ]
 
     def log_step(obs: dict | None, action: dict) -> None:
         _log.info("open-loop step: prompt=%r action=%s", prompt, action)
