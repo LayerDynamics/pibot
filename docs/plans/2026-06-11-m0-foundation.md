@@ -7,7 +7,7 @@
 | **Depends on** | — |
 | **Branch** | `m0-foundation` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped (commit `05dc422`) |
 
 > Conventions (strict TDD, quality gates, git, bug rule) are defined in the
 > [roadmap](2026-06-11-pibot-control-suite-roadmap.md#shared-conventions-apply-to-every-task-in-every-milestone)

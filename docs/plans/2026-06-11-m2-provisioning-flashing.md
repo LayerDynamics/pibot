@@ -7,7 +7,7 @@
 | **Depends on** | M1 |
 | **Branch** | `m2-provisioning-flashing` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped (commit `1ae1dd7`) |
 
 > Conventions per the
 > [roadmap](2026-06-11-pibot-control-suite-roadmap.md#shared-conventions-apply-to-every-task-in-every-milestone).

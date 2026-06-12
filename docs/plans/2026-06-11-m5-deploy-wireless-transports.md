@@ -7,7 +7,7 @@
 | **Depends on** | M4 |
 | **Branch** | `m5-deploy-wireless-transports` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped (commit `107e389`) |
 
 > Conventions per the
 > [roadmap](2026-06-11-pibot-control-suite-roadmap.md#shared-conventions-apply-to-every-task-in-every-milestone).
