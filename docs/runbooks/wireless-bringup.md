@@ -8,10 +8,15 @@ supported. Every transport fails safe: a dropped link marks it down so the deadm
 ## Wi-Fi / TCP (ESP32 — the default wireless controller)
 
 ```bash
-# Flash the ESP32 controller, then read the IP it prints over serial.
+# Flash the ESP32 controller over USB (first time), then read the IP it prints over serial.
 pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --port /dev/ttyUSB0 --dry-run
 pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --port /dev/ttyUSB0
+# After the first flash you can update it WIRELESSLY (OTA) from your Mac or the Pi:
+pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --ota <esp32-ip>
 ```
+
+Set Wi-Fi credentials in `firmware/pibot_esp32/secrets.h` (copy `secrets.h.example`) before
+the first flash — it is gitignored, so the password is never committed.
 
 Then point the agent's transport at it (`~/.config/pibot/config.toml`):
 

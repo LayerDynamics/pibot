@@ -270,10 +270,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_fw_build.add_argument("sketch")
     p_fw_build.add_argument("--fqbn", required=True, help="e.g. arduino:avr:uno")
     p_fw_build.set_defaults(func=cmd_firmware_build)
-    p_fw_flash = fw_sub.add_parser("flash", parents=[g], help="upload a sketch")
+    p_fw_flash = fw_sub.add_parser("flash", parents=[g], help="upload a sketch (USB or OTA)")
     p_fw_flash.add_argument("sketch")
     p_fw_flash.add_argument("--fqbn", required=True, help="e.g. arduino:avr:uno")
-    p_fw_flash.add_argument("--port", required=True, help="e.g. /dev/ttyACM0")
+    p_fw_flash.add_argument("--port", help="USB serial port, e.g. /dev/ttyACM0")
+    p_fw_flash.add_argument(
+        "--ota", dest="ota_host", help="flash over WiFi (OTA) to this host/IP instead of USB"
+    )
+    p_fw_flash.add_argument("--ota-port", dest="ota_port", type=int, default=3232)
+    p_fw_flash.add_argument("--ota-pass", dest="ota_pass", default="", help="OTA password if set")
     _add_dry_run(p_fw_flash)
     p_fw_flash.set_defaults(func=cmd_firmware_flash)
 
@@ -648,9 +653,20 @@ def cmd_firmware_build(args: argparse.Namespace) -> int:
 
 
 def cmd_firmware_flash(args: argparse.Namespace) -> int:
-    return firmware.flash(
-        args.sketch, fqbn=args.fqbn, port=args.port, dry_run=getattr(args, "dry_run", False)
-    )
+    dry_run = getattr(args, "dry_run", False)
+    ota_host = getattr(args, "ota_host", None)
+    if ota_host:
+        return firmware.flash_ota(
+            args.sketch,
+            fqbn=args.fqbn,
+            host=ota_host,
+            port=getattr(args, "ota_port", 3232),
+            password=getattr(args, "ota_pass", ""),
+            dry_run=dry_run,
+        )
+    if not getattr(args, "port", None):
+        raise UsageError("firmware flash needs --port (USB) or --ota <host> (wireless)")
+    return firmware.flash(args.sketch, fqbn=args.fqbn, port=args.port, dry_run=dry_run)
 
 
 # ---- control -------------------------------------------------------------

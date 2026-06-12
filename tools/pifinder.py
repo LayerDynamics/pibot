@@ -766,7 +766,7 @@ def render(hosts: list[Host], show_all: bool, as_json: bool, network_label: str)
             print_host_detail(h)
     elif not pis:
         print("\nNo Raspberry Pi identified on this network.")
-        print("If your Pi is reachable only over a VPN/overlay (e.g. ZeroTier),")
+        print("If your Pi is reachable only over a VPN/overlay (e.g. Nebula),")
         print("it may show a non-Pi MAC above — re-run with --all to inspect every host.")
 
 

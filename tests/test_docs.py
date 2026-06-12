@@ -21,6 +21,7 @@ RUNBOOKS = [
     "e-stop.md",
     "first-boot.md",
     "wireless-bringup.md",
+    "nebula-overlay.md",
 ]
 
 # Every markdown doc we own and lint (runbooks + top-level user docs).

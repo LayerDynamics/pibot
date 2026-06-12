@@ -25,7 +25,11 @@ coverage.xml
 .config/
 pibot.token
 inventory.local.toml
+firmware/**/secrets.h
+secrets.h
 
 # OS
 .DS_Store
 resources
+# web-research skill output
+.web-research/

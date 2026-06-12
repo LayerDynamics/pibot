@@ -2,8 +2,8 @@
 
 Reference firmware for the PiBot "muscles" layer. **Wireless-first: the ESP32 is the
 primary controller** — one board joins Wi-Fi, drives the motors/servos directly, and
-serves the PiBot protocol over TCP, so the Pi talks to it over Wi-Fi / the ZeroTier
-overlay with no USB cable and no separate Arduino. All sketches speak the same wire
+serves the PiBot protocol over TCP, so the Pi talks to it over Wi-Fi (or, for remote
+access, the Nebula overlay) with no USB cable and no separate Arduino. All sketches speak the same wire
 protocol as the host codec (`pibot/protocol/codec.py` / `protocol.h`); the host-side
 mirror used for no-hardware tests is `pibot/control/echo.py`.
 
@@ -50,6 +50,22 @@ pibot firmware build firmware/pibot_arduino --fqbn arduino:avr:uno
 
 Once flashed and on Wi-Fi, the ESP32 prints its IP; the Pi connects with
 `TcpTransport(<esp32-ip>, 3333)`.
+
+### Wireless (OTA) flashing — no USB after the first flash
+
+`pibot_esp32` includes `ArduinoOTA`, so after the **one** USB flash above you can update it
+over Wi-Fi from any machine on the LAN (your Mac, or the Pi):
+
+```bash
+pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --ota <esp32-ip>
+pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --ota <esp32-ip> --dry-run
+```
+
+It compiles the sketch and pushes the binary to the ESP32's OTA service (port 3232) via the
+core's `espota.py`. Wi-Fi credentials live in a gitignored `secrets.h` (copy
+`secrets.h.example`); set `PIBOT_OTA_PASS` there and pass `--ota-pass` to require a password.
+The board mDNS-advertises as `pibot-esp32.local`. The robot stops its motors before an OTA
+write begins, so it never drives mid-update.
 
 ## Wired transports — GPIO-UART & I²C level requirements
 
