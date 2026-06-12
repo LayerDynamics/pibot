@@ -15,7 +15,8 @@ from dataclasses import asdict
 from ipaddress import AddressValueError, IPv4Address
 from pathlib import Path
 
-from pibot import discovery
+from pibot import agent_ctl, discovery
+from pibot import monitor as monitor_mod
 from pibot.config import Config, load_config
 from pibot.connection import commands, keys, transfer, tunnel
 from pibot.control import oneshot
@@ -276,6 +277,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--transport", dest="transport_override", choices=_transports, default=argparse.SUPPRESS
     )
     p_estop.set_defaults(func=cmd_estop)
+
+    # ---- agent / teleop / telemetry ----
+    p_teleop = sub.add_parser("teleop", parents=[g, t], help="keyboard-drive the robot")
+    p_teleop.add_argument("target")
+    p_teleop.add_argument("--rate", type=float, default=argparse.SUPPRESS, help="send rate Hz")
+    p_teleop.set_defaults(func=cmd_teleop)
+
+    p_monitor = sub.add_parser("monitor", parents=[g], help="live robot + Pi telemetry")
+    p_monitor.add_argument("target")
+    p_monitor.add_argument(
+        "--once", action="store_true", default=argparse.SUPPRESS, help="one snapshot then exit"
+    )
+    p_monitor.add_argument("--csv", action="store_true", dest="as_csv", default=argparse.SUPPRESS)
+    p_monitor.add_argument("--interval", type=float, default=argparse.SUPPRESS, help="poll seconds")
+    p_monitor.set_defaults(func=cmd_monitor)
+
+    p_agent = sub.add_parser("agent", parents=[g], help="manage the pibotd agent on the Pi")
+    agent_sub = p_agent.add_subparsers(dest="action", required=True)
+    for action in ("status", "start", "stop", "logs"):
+        ap = agent_sub.add_parser(action, parents=[g, t], help=f"{action} pibotd")
+        ap.add_argument("target")
+        if action == "logs":
+            ap.add_argument("--lines", type=int, default=50)
+        ap.set_defaults(func=cmd_agent, agent_action=action)
 
     return parser
 
@@ -580,3 +605,69 @@ def cmd_cmd(args: argparse.Namespace) -> int:
 def cmd_estop(args: argparse.Namespace) -> int:
     cfg, inv = _control_context(args)
     return oneshot.estop(args.target, cfg=cfg, inventory=inv, as_json=getattr(args, "json", False))
+
+
+# ---- agent / teleop / monitor --------------------------------------------
+
+
+def _agent_base_url(cfg: Config, inv: Inventory, target: str) -> str:
+    address = inv.resolve(target)
+    port = int(cfg.agent_bind.rsplit(":", 1)[1])
+    return f"http://{address}:{port}"
+
+
+def cmd_teleop(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from agent.auth import load_token
+    from pibot.control.client import AgentClient
+    from pibot.control.teleop import run_teleop, stdin_key_source
+
+    cfg, inv = _context()
+    rate = getattr(args, "rate", None) or cfg.teleop_rate_hz
+
+    async def _drive() -> int:
+        client = AgentClient(
+            _agent_base_url(cfg, inv, args.target), token=load_token(cfg.agent_token_path)
+        )
+        await client.connect()
+        key_source = stdin_key_source()
+        try:
+            print("teleop: WASD/arrows drive, space=e-stop, q=quit")
+            await run_teleop(client, key_source, rate_hz=rate)
+        finally:
+            key_source.restore()  # type: ignore[attr-defined]
+            await client.close()
+        return 0
+
+    return asyncio.run(_drive())
+
+
+def cmd_monitor(args: argparse.Namespace) -> int:
+    import asyncio
+
+    cfg, inv = _context()
+    return asyncio.run(
+        monitor_mod.monitor(
+            args.target,
+            cfg=cfg,
+            inventory=inv,
+            once=getattr(args, "once", False),
+            as_json=getattr(args, "json", False),
+            as_csv=getattr(args, "as_csv", False),
+            interval=getattr(args, "interval", 1.0),
+        )
+    )
+
+
+def cmd_agent(args: argparse.Namespace) -> int:
+    cfg, inv = _context()
+    user = getattr(args, "user", None)
+    action = args.agent_action
+    if action == "status":
+        return agent_ctl.status(args.target, cfg=cfg, inventory=inv, user=user)
+    if action == "start":
+        return agent_ctl.start(args.target, cfg=cfg, inventory=inv, user=user)
+    if action == "stop":
+        return agent_ctl.stop(args.target, cfg=cfg, inventory=inv, user=user)
+    return agent_ctl.logs(args.target, cfg=cfg, inventory=inv, user=user, lines=args.lines)
