@@ -94,7 +94,7 @@ def snapshot_csv_header() -> str:
 
 def snapshot_to_csv(snap: dict[str, Any]) -> str:
     pi = snap.get("pi", {})
-    policy = snap.get("policy", {})
+    policy = snap.get("policy") or {}
     row = [
         snap.get("ts"),
         pi.get("temp_c"),
