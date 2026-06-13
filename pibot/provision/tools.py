@@ -54,3 +54,40 @@ def require_tool(name: str) -> str:
             message += f" — {hint}"
         raise PibotError(message)
     return path
+
+
+# rpiboot's ``-d`` flag needs the real path to the mass-storage gadget boot-files
+# directory, NOT a bare name (a bare name fails with "No 'bootcode' files found").
+# The directory ships next to the rpiboot binary (source build) or under
+# ``<prefix>/share/rpiboot`` (Homebrew / distro packages).
+_GADGET_DIR = "mass-storage-gadget64"
+
+
+def resolve_gadget_dir(rpiboot_binary: str) -> str | None:
+    """Return the absolute path to the rpiboot mass-storage gadget dir, or None."""
+    bin_path = Path(rpiboot_binary)
+    if bin_path.exists():
+        bin_path = bin_path.resolve()
+    bin_dir = bin_path.parent
+    candidates = [
+        bin_dir / _GADGET_DIR,  # source build: usbboot/rpiboot + usbboot/mass-storage-gadget64
+        bin_dir.parent / "share" / "rpiboot" / _GADGET_DIR,  # Homebrew: bin -> ../share/rpiboot
+        _HOME / ".cache" / "pibot" / "usbboot" / _GADGET_DIR,
+        Path("/opt/homebrew/share/rpiboot") / _GADGET_DIR,
+        Path("/usr/share/rpiboot") / _GADGET_DIR,  # Linux distro package
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return str(candidate)
+    return None
+
+
+def require_gadget_dir(rpiboot_binary: str) -> str:
+    """Return the rpiboot mass-storage gadget dir or raise with an install hint."""
+    path = resolve_gadget_dir(rpiboot_binary)
+    if path is None:
+        raise PibotError(
+            f"rpiboot mass-storage gadget dir {_GADGET_DIR!r} not found near "
+            f"{rpiboot_binary!r} — reinstall with scripts/install-flash-tools.sh"
+        )
+    return path

@@ -43,19 +43,58 @@ def _default_run(argv: list[str]) -> int:
     return subprocess.run(argv).returncode
 
 
+def _is_url(image: str) -> bool:
+    return image.startswith(("http://", "https://"))
+
+
+def _verify_file_sha256(path: str, expected: str) -> None:
+    """Verify a local image file's SHA-256, raising :class:`PibotError` on mismatch.
+
+    rpi-imager's ``--sha256`` checks the *decompressed* image, but callers pass the hash
+    of the image FILE (e.g. an ``.xz``). The suite therefore verifies the file itself and
+    does not hand the (differing) value to rpi-imager.
+    """
+    import hashlib
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    actual = digest.hexdigest()
+    if actual != expected:
+        raise PibotError(f"image SHA-256 mismatch for {path}: expected {expected}, got {actual}")
+    _log.info("image SHA-256 verified for %s", path)
+
+
 def _default_mount_boot(device_node: str) -> str:  # pragma: no cover - macOS/diskutil glue
     import plistlib
     import subprocess
+    import time
 
     boot_part = f"{device_node}s1"
-    subprocess.run(["diskutil", "mount", boot_part], check=True)
-    info = plistlib.loads(
-        subprocess.run(["diskutil", "info", "-plist", boot_part], capture_output=True).stdout
+    # rpi-imager rewrites the partition table and may briefly eject / re-enumerate the
+    # disk on completion, so the freshly-written boot partition is not always present the
+    # instant the write returns. Re-read the disk and retry before giving up.
+    last_err = ""
+    for _ in range(10):
+        subprocess.run(["diskutil", "mountDisk", device_node], capture_output=True)
+        mounted = subprocess.run(["diskutil", "mount", boot_part], capture_output=True, text=True)
+        if mounted.returncode == 0:
+            info = plistlib.loads(
+                subprocess.run(
+                    ["diskutil", "info", "-plist", boot_part], capture_output=True
+                ).stdout
+            )
+            mount = info.get("MountPoint")
+            if mount:
+                return str(mount)
+        last_err = (mounted.stderr or mounted.stdout).strip()
+        time.sleep(2)
+    raise PibotError(
+        f"could not mount boot partition {boot_part} after flashing "
+        f"({last_err or 'disk not found'}). rpi-imager may have ejected the card — "
+        "re-insert it and re-apply the first-boot config."
     )
-    mount = info.get("MountPoint")
-    if not mount:
-        raise PibotError(f"could not mount boot partition {boot_part}")
-    return mount
 
 
 def _default_unmount(device_node: str) -> None:  # pragma: no cover - macOS/diskutil glue
@@ -124,13 +163,20 @@ def flash_to_device(
 
     binary = imager_binary or tools.require_tool("rpi-imager")
     steps: list[list[str]] = []
-    write_node = device_node
     if system == "Darwin":
+        # Unmount the disk first. rpi-imager --cli is given the plain /dev/diskN node: it
+        # matches its removable-drive allowlist by that name and does its own raw-device
+        # write, so passing /dev/rdiskN makes it reject the target ("not in list of
+        # removable volumes").
         steps.append(["diskutil", "unmountDisk", device_node])
-        write_node = imager.macos_raw_device(device_node)
-    steps.append(imager.imager_argv(image, write_node, binary=binary, sha256=sha256))
+    # rpi-imager's --sha256 verifies the *decompressed* image; ``sha256`` here is the hash
+    # of the image FILE (e.g. the .xz), so we verify the file ourselves (below) and do not
+    # pass the differing value to rpi-imager. Its own post-write read-back still runs.
+    steps.append(imager.imager_argv(image, device_node, binary=binary))
 
     if dry_run:
+        if sha256 and not _is_url(image):
+            print(f"DRY-RUN: verify image file SHA-256 == {sha256}")
         _show(steps)
         if first_boot:
             print(
@@ -138,6 +184,9 @@ def flash_to_device(
                 f"user={first_boot.username}, {len(first_boot.ssh_authorized_keys)} key(s))"
             )
         return 0
+
+    if sha256 and not _is_url(image):
+        _verify_file_sha256(image, sha256)
 
     runner = run or _default_run
     for step in steps:
@@ -165,6 +214,7 @@ def flash_via_rpiboot(
     enumerate_fn: EnumFn | None = None,
     rpiboot_run: RunFn | None = None,
     rpiboot_binary: str | None = None,
+    gadget_dir: str | None = None,
     flash_fn: Callable[..., int] | None = None,
     first_boot: FirstBootSpec | None = None,
     poll_attempts: int = 20,
@@ -176,8 +226,9 @@ def flash_via_rpiboot(
     before = enumerate_fn()
 
     if dry_run:
+        shown_gadget = gadget_dir or tools.resolve_gadget_dir(binary) or "mass-storage-gadget64"
         print("DRY-RUN: hold the Pi 5 power button while connecting USB-C, then:")
-        print("DRY-RUN:", binary, "-d", "mass-storage-gadget64")
+        print("DRY-RUN:", binary, "-d", shown_gadget)
         print("DRY-RUN: wait for the NVMe to enumerate, then rpi-imager writes", image)
         if first_boot:
             print(
@@ -187,7 +238,10 @@ def flash_via_rpiboot(
         return 0
 
     _log.info("hold the Pi 5 power button while connecting USB-C (no jumper on Pi 5)")
-    rc = (rpiboot_run or _default_run)([binary, "-d", "mass-storage-gadget64"])
+    # rpiboot needs the real gadget-files directory, not a bare name (resolved from the
+    # rpiboot binary location; injectable for tests).
+    resolved_gadget = gadget_dir or tools.require_gadget_dir(binary)
+    rc = (rpiboot_run or _default_run)([binary, "-d", resolved_gadget])
     if rc != 0:
         raise PibotError(f"rpiboot failed (exit {rc}); was the power button held on connect?")
 
