@@ -170,6 +170,47 @@ def test_video_downscales_large_frame() -> None:
     _run(body())
 
 
+# ---------------------------------------------------------------------------
+# build_camera_broker: pibotd opens the USB camera into a shared /video broker
+# at boot, and degrades to None (video off, agent still serving) when it can't.
+# ---------------------------------------------------------------------------
+
+
+def test_build_camera_broker_degrades_when_camera_unavailable() -> None:
+    # No opencv / no camera (dev host, CI, or a Pi with nothing attached) must NOT crash
+    # pibotd — build_camera_broker returns None and /video simply stays disabled.
+    from agent.pibotd import build_camera_broker
+    from pibot.config import Config
+
+    assert build_camera_broker(Config(camera_device="/dev/pibot-no-such-camera")) is None
+
+
+def test_build_camera_broker_wraps_an_openable_camera(monkeypatch: pytest.MonkeyPatch) -> None:
+    # When a camera opens, pibotd wraps it in a CameraBroker so the boot path enables /video.
+    from agent import pibotd
+    from pibot.config import Config
+
+    opened = {"open": False}
+
+    class _FakeCam:
+        def __init__(self, device: str) -> None:
+            self.device = device
+
+        def open(self) -> None:
+            opened["open"] = True
+
+        def capture(self) -> Any:
+            return None
+
+        def close(self) -> None:
+            opened["open"] = False
+
+    monkeypatch.setattr("pibot.ml.camera.Camera", _FakeCam)
+    broker = pibotd.build_camera_broker(Config(camera_device="/dev/video0", video_fps=15))
+    assert isinstance(broker, CameraBroker)
+    assert opened["open"] is True
+
+
 def test_video_small_frame_not_upscaled() -> None:
     async def body() -> None:
         cam = _RGBCam(width=320, height=240)  # smaller than 640

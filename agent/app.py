@@ -189,10 +189,21 @@ async def handle_autonomy_start(request: web.Request) -> web.Response:
         with contextlib.suppress(ValueError):  # JSONDecodeError subclasses ValueError
             body = await request.json()
 
-    from agent.autonomy import AutonomyController, build_runtime  # lazy: keep ml off import path
+    # Lazy import keeps the ml stack off agent.app's import path.
+    from agent.autonomy import AutonomyController, build_policy, build_runtime
 
-    factory = state.autonomy_factory or build_runtime
-    camera, policy = factory(dict(state.autonomy_config))
+    # An explicitly injected factory wins (tests). Otherwise, when the agent opened a shared
+    # camera broker at boot, subscribe to it so the /video WS and the autonomy loop consume one
+    # capture device; else build_runtime opens its own camera (standalone, no shared broker).
+    if state.autonomy_factory is not None:
+        camera, policy = state.autonomy_factory(dict(state.autonomy_config))
+    elif state.broker is not None:
+        from agent.video import BrokerCamera
+
+        camera = BrokerCamera(state.broker.subscribe(), broker=state.broker)
+        policy = build_policy(dict(state.autonomy_config))
+    else:
+        camera, policy = build_runtime(dict(state.autonomy_config))
     auto = AutonomyController(
         state.controller,
         state.policy_link,
