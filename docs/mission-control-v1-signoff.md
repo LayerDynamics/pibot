@@ -52,10 +52,11 @@ manual E2E), which is still open — see the Performance and E2E sections below.
 > `EstopButton` sits in the top bar, and `notifyStore` wires the telemetry alert stream into
 > `notifyAlerts`. A navigation smoke test (`App.test.tsx`) guards this.
 >
-> **Still open after integration:** real OS-notification *delivery* needs the
-> `@tauri-apps/plugin-notification` package + Rust `tauri-plugin-notification` registration
-> (a capability grant + scoping the vite alias to tests) — it is currently a no-op mock in
-> every build. Plus the release-gate performance measurements and the manual E2E flows below.
+> **Real OS-notification delivery is now wired** (FR-22): the `@tauri-apps/plugin-notification`
+> package + the Rust `tauri-plugin-notification` are installed, registered
+> (`.plugin(tauri_plugin_notification::init())`), and capability-granted (`notification:default`);
+> `notify.ts` requests permission then delivers, and the vite mock is scoped to tests only.
+> **Still open:** the release-gate performance measurements and the manual E2E flows below.
 
 ## Performance targets
 

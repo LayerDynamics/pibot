@@ -41,11 +41,20 @@ export function notifyAlerts(alertStrings: string[]): void {
 }
 
 function _tauriSend(title: string, body: string): void {
-  // Tauri v2 notification plugin — only available in the app bundle.
+  // Tauri v2 notification plugin — only available in the app bundle. Request the OS
+  // notification permission on first use, then deliver.
   /* @vite-ignore */
   import("@tauri-apps/plugin-notification")
-    .then(({ sendNotification }) => sendNotification({ title, body }))
+    .then(async ({ isPermissionGranted, requestPermission, sendNotification }) => {
+      let granted = await isPermissionGranted();
+      if (!granted) {
+        granted = (await requestPermission()) === "granted";
+      }
+      if (granted) {
+        sendNotification({ title, body });
+      }
+    })
     .catch(() => {
-      /* not in Tauri context (e.g. browser preview) — silently skip */
+      /* not in a Tauri context (browser preview / tests) — silently skip */
     });
 }
