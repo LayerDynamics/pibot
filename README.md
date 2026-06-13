@@ -66,7 +66,8 @@ pibot estop pibot                    # latch e-stop and command a stop
   [e-stop](docs/runbooks/e-stop.md) ·
   [eeprom-recovery](docs/runbooks/eeprom-recovery.md) ·
   [wireless-bringup](docs/runbooks/wireless-bringup.md) ·
-  [nebula-overlay](docs/runbooks/nebula-overlay.md)
+  [nebula-overlay](docs/runbooks/nebula-overlay.md) ·
+  [mission-control](docs/runbooks/mission-control.md)
 - **[docs/specs/SPEC-1-pibot-control-suite.md](docs/specs/SPEC-1-pibot-control-suite.md)** —
   the full specification.
 - **[firmware/README.md](firmware/README.md)** — the ESP32/Arduino firmware and wiring.

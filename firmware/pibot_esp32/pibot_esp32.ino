@@ -13,10 +13,11 @@
 //   4. LINK-LOSS— TCP client disconnects -> motors stop immediately (a dropped Wi-Fi
 //                 link must not leave the robot driving)
 //
-// PWM/servo use the ESP32 LEDC peripheral (Arduino-ESP32 core 3.x API). Set pins and
-// your battery divider in the CONFIG block.
+// Servos driven via PCA9685 16-channel PWM shield on I2C (SDA=GPIO21, SCL=GPIO22).
+// Set pins and your battery divider in the CONFIG block.
 
 #include "protocol.h"
+#include <Wire.h>
 #include <WiFi.h>
 #include <ArduinoOTA.h>  // over-the-air firmware updates (wireless flashing)
 
@@ -51,7 +52,6 @@ static const unsigned long TELEMETRY_MS = 100;
 // Dual H-bridge (TB6612/L298-style): per-side PWM pin + direction pin.
 static const uint8_t PIN_L_PWM = 25, PIN_L_DIR = 26;
 static const uint8_t PIN_R_PWM = 32, PIN_R_DIR = 33;
-static const uint8_t PIN_SERVO_0 = 18, PIN_SERVO_1 = 19;
 static const uint8_t PIN_VBAT = 34;          // ADC1_CH6
 static const float VBAT_SCALE = 0.0017f;     // adc(0..4095) -> volts; set for your divider
 
@@ -59,11 +59,73 @@ static const float MAX_V = 1.0f, MAX_W = 2.0f;
 static const float SERVO_MIN = 0.0f, SERVO_MAX = 180.0f;
 static const int MAX_PWM = 255;
 
-// LEDC parameters.
+// LEDC parameters for motors only.
 static const uint32_t MOTOR_FREQ = 20000;    // 20 kHz (inaudible)
 static const uint8_t MOTOR_RES = 8;          // 0..255
-static const uint32_t SERVO_FREQ = 50;       // 50 Hz
-static const uint8_t SERVO_RES = 16;         // 0..65535
+
+// ----------------------------- PCA9685 ----------------------------------
+// 16-channel 12-bit PWM controller. I2C addr 0x40, SDA=GPIO21, SCL=GPIO22.
+// Logic powered from ESP32 3V3. Servo rail (V+) needs its own supply.
+#define PCA9685_ADDR     0x40
+#define PCA9685_MODE1    0x00
+#define PCA9685_PRESCALE 0xFE
+#define PCA9685_LED0     0x06  // LED0_ON_L; each channel occupies 4 bytes
+
+static void pca_write(uint8_t reg, uint8_t val) {
+  Wire.beginTransmission(PCA9685_ADDR);
+  Wire.write(reg);
+  Wire.write(val);
+  Wire.endTransmission();
+}
+
+static void pca_init() {
+  // I2C bus recovery: 9 SCL pulses to release any slave holding SDA low,
+  // then a manual STOP condition, before handing control to Wire.
+  pinMode(22, OUTPUT); pinMode(21, INPUT_PULLUP);
+  for (int i = 0; i < 9; i++) {
+    digitalWrite(22, HIGH); delayMicroseconds(10);
+    digitalWrite(22, LOW);  delayMicroseconds(10);
+  }
+  // STOP: SDA low -> SCL high -> SDA high
+  pinMode(21, OUTPUT);
+  digitalWrite(21, LOW);  delayMicroseconds(10);
+  digitalWrite(22, HIGH); delayMicroseconds(10);
+  digitalWrite(21, HIGH); delayMicroseconds(10);
+
+  Wire.begin(21, 22);
+  delay(20);
+
+  // Full bus scan so we know exactly what is visible
+  Serial.println("I2C scan:");
+  bool found = false;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("  device at 0x"); Serial.println(addr, HEX);
+      found = true;
+    }
+  }
+  if (!found) Serial.println("  no devices found -- check SDA/SCL wiring");
+
+  pca_write(PCA9685_MODE1, 0x00);   // wake, clear sleep
+  delay(5);
+  pca_write(PCA9685_MODE1, 0x10);   // sleep to allow prescale write
+  // prescale = round(25e6 / (4096 * 50)) - 1 = 121  ->  50 Hz servo PWM
+  pca_write(PCA9685_PRESCALE, 121);
+  pca_write(PCA9685_MODE1, 0x00);   // wake
+  delay(5);
+  pca_write(PCA9685_MODE1, 0xA0);   // restart + auto-increment
+}
+
+static void pca_set_pwm(uint8_t ch, uint16_t on, uint16_t off) {
+  Wire.beginTransmission(PCA9685_ADDR);
+  Wire.write(PCA9685_LED0 + 4 * ch);
+  Wire.write(on  & 0xFF);
+  Wire.write(on  >> 8);
+  Wire.write(off & 0xFF);
+  Wire.write(off >> 8);
+  Wire.endTransmission();
+}
 
 // ----------------------------- STATE -------------------------------------
 WiFiServer server(TCP_PORT);
@@ -97,17 +159,13 @@ static void apply_drive(float v, float w) {
   apply_side(PIN_R_PWM, PIN_R_DIR, (v + w) / MAX_V);
 }
 
-static uint32_t servo_duty(float deg) {
-  deg = clampf(deg, SERVO_MIN, SERVO_MAX);
-  // 1 ms (0°) .. 2 ms (180°) pulse within a 20 ms period at 16-bit resolution.
-  const float lo = 65536.0f * 1.0f / 20.0f;
-  const float hi = 65536.0f * 2.0f / 20.0f;
-  return (uint32_t)(lo + (hi - lo) * (deg / 180.0f));
-}
-
 static void apply_servo(int id, float deg) {
-  if (id == 0) ledcWrite(PIN_SERVO_0, servo_duty(deg));
-  else if (id == 1) ledcWrite(PIN_SERVO_1, servo_duty(deg));
+  if (id < 0 || id > 15) return;
+  deg = clampf(deg, SERVO_MIN, SERVO_MAX);
+  // 50 Hz = 20 ms period; 12-bit = 4096 ticks.
+  // 1 ms (0 deg) = ~205 ticks; 2 ms (180 deg) = ~410 ticks.
+  uint16_t ticks = (uint16_t)(205.0f + 205.0f * (deg / 180.0f));
+  pca_set_pwm((uint8_t)id, 0, ticks);
 }
 
 static void apply_motor(int id, float pwm) {
@@ -214,8 +272,7 @@ void setup() {
   pinMode(PIN_R_DIR, OUTPUT);
   ledcAttach(PIN_L_PWM, MOTOR_FREQ, MOTOR_RES);
   ledcAttach(PIN_R_PWM, MOTOR_FREQ, MOTOR_RES);
-  ledcAttach(PIN_SERVO_0, SERVO_FREQ, SERVO_RES);
-  ledcAttach(PIN_SERVO_1, SERVO_FREQ, SERVO_RES);
+  pca_init();
   stop_all();
 
   WiFi.mode(WIFI_STA);

@@ -11,6 +11,9 @@ docs/
 firmware/
 resources/
 scripts/
+images/
+*.img
+*.img.xz
 releases/
 .venv/
 .ruff_cache/
@@ -21,3 +24,24 @@ __pycache__/
 *.pyo
 .DS_Store
 PIML.md
+# Host-only ML venv + the Tauri desktop app (Mission Control runs on the Mac, not the
+# robot) — both are large (multi-GB) and irrelevant to the on-Pi agent.
+.venv-ml/
+.venv-cuda/
+app/
+build/
+dist/
+# Vendored Unity simulator (~640 MB) — host-only sim asset, never runs on the robot.
+vendor/
+# Scratch / tooling / docs not needed on the robot.
+.hermes/
+.web-research/
+.github/
+tmp/
+.coverage
+coverage.xml
+htmlcov/
+app_patched.py
+*.mmd
+CLAUDE.md
+Todo.md

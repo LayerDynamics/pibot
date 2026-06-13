@@ -14,6 +14,7 @@ import pytest
 
 from pibot.control.echo import EchoResponder
 from pibot.protocol.codec import Message, MessageType, decode, encode
+from pibot.transport.base import Transport
 from pibot.transport.serial import SerialTransport
 from pibot.transport.tcp import TcpTransport
 
@@ -24,6 +25,21 @@ def _ping(seq: int) -> bytes:
 
 def _drive(seq: int) -> bytes:
     return encode(Message(MessageType.COMMAND, seq, "drive", {"v": 0.5, "w": 0.0}), "ascii")
+
+
+def _recv_frame(t: Transport, timeout: float = 10.0) -> bytes:
+    """Wait up to ``timeout`` for one whole frame, failing clearly instead of crashing.
+
+    The :class:`EchoResponder` runs in a daemon thread, so on a heavily loaded CI runner its
+    echo can lag behind the read deadline. A timed-out ``recv`` returns ``None``; feeding that
+    straight to ``decode`` raised an opaque ``AttributeError`` (the original flake). Assert a
+    clear message instead, and use a generous budget so a transient scheduling delay never
+    fails a correct round-trip (the happy path returns the instant a frame arrives, so the
+    budget adds no latency).
+    """
+    frame = t.recv(timeout)
+    assert frame is not None, f"no frame from the responder within {timeout:.0f}s"
+    return frame
 
 
 # ---- responder-backed TCP server ----------------------------------------
@@ -71,13 +87,13 @@ def test_roundtrip_over_tcp() -> None:
         t = TcpTransport("127.0.0.1", srv.port)
         t.open()
         t.send(_ping(7))
-        ack = decode(t.recv(1.0), "ascii")
-        tlm = decode(t.recv(1.0), "ascii")
+        ack = decode(_recv_frame(t), "ascii")
+        tlm = decode(_recv_frame(t), "ascii")
         assert ack.type is MessageType.ACK and ack.seq == 7
         assert tlm.type is MessageType.TELEMETRY  # ping is answered with telemetry
         # a drive command just gets an ACK
         t.send(_drive(8))
-        assert decode(t.recv(1.0), "ascii") == Message(MessageType.ACK, 8)
+        assert decode(_recv_frame(t), "ascii") == Message(MessageType.ACK, 8)
         t.close()
     finally:
         srv.stop()
@@ -89,7 +105,7 @@ def test_tcp_bad_frame_gets_nak() -> None:
         t = TcpTransport("127.0.0.1", srv.port)
         t.open()
         t.send(b">5,drive,0.5,0.0*00\n")  # wrong CRC
-        reply = decode(t.recv(1.0), "ascii")
+        reply = decode(_recv_frame(t), "ascii")
         assert reply.type is MessageType.NAK and reply.reason == "crc"
         t.close()
     finally:
@@ -116,7 +132,14 @@ def test_roundtrip_over_pty_serial() -> None:
                 try:
                     data = os.read(master, 4096)
                 except OSError:
-                    break
+                    # Linux: between os.close(slave) above and pyserial's open below, the PTY
+                    # master reports readable but os.read raises EIO. Wait briefly for the slave
+                    # to (re)open rather than killing the responder — otherwise the round-trip
+                    # never completes on a Linux CI runner and _recv_frame times out.
+                    if stop.is_set():
+                        break
+                    select.select([], [], [], 0.01)
+                    continue
                 for out in responder.feed(data):
                     os.write(master, out)
 
@@ -126,8 +149,8 @@ def test_roundtrip_over_pty_serial() -> None:
         t = SerialTransport(slave_name)
         t.open()
         t.send(_ping(3))
-        ack = decode(t.recv(1.0), "ascii")
-        tlm = decode(t.recv(1.0), "ascii")
+        ack = decode(_recv_frame(t), "ascii")
+        tlm = decode(_recv_frame(t), "ascii")
         assert ack == Message(MessageType.ACK, 3)
         assert tlm.type is MessageType.TELEMETRY
         t.close()

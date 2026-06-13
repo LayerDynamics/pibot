@@ -137,23 +137,42 @@ class AutonomyController:
         self._link.mark_disconnected()
 
 
-def build_runtime(  # pragma: no cover - hardware: opencv camera + openpi websocket policy
+def build_policy(  # pragma: no cover - hardware: openpi websocket policy client
     autonomy_config: dict[str, Any],
-) -> tuple[Any, Any]:
-    """Build the real (camera, policy) for an autonomy session — lazy cv2/openpi imports.
+) -> Any:
+    """Build the openpi action-chunk policy client for an autonomy session (lazy openpi import).
 
-    Kept out of import time so ``agent.app`` stays free of the ml stack until autonomy runs.
+    Split out of :func:`build_runtime` so a session that reuses the agent's shared camera
+    broker (the ``/video`` capture loop) can build just the policy without opening a second
+    handle on the camera device.
     """
     from openpi_client import action_chunk_broker, websocket_client_policy
 
-    from pibot.ml.camera import Camera
-
-    camera = Camera(autonomy_config.get("camera_device", "/dev/video0"))
-    camera.open()
-    policy = action_chunk_broker.ActionChunkBroker(
+    return action_chunk_broker.ActionChunkBroker(
         websocket_client_policy.WebsocketClientPolicy(
             host=autonomy_config["policy_host"], port=autonomy_config.get("policy_port", 8000)
         ),
         action_horizon=autonomy_config.get("action_horizon", 50),
     )
-    return camera, policy
+
+
+def build_runtime(  # pragma: no cover - hardware: opencv camera + openpi websocket policy
+    autonomy_config: dict[str, Any],
+) -> tuple[Any, Any]:
+    """Build the real (camera, policy) for a *standalone* autonomy session — lazy cv2/openpi.
+
+    Opens its OWN camera + broker. Used only when the agent has no shared boot-time broker
+    (e.g. a standalone runner). Inside ``pibotd`` the shared broker built by
+    ``build_from_config`` is preferred (see :func:`agent.app.handle_autonomy_start`) so the
+    capture device is opened exactly once for both the ``/video`` WS endpoint and autonomy.
+
+    Kept out of import time so ``agent.app`` stays free of the ml stack until autonomy runs.
+    """
+    from agent.video import BrokerCamera, CameraBroker
+    from pibot.ml.camera import Camera
+
+    raw_camera = Camera(autonomy_config.get("camera_device", "/dev/video0"))
+    raw_camera.open()
+    broker = CameraBroker(raw_camera, fps=autonomy_config.get("video_fps", 10))
+    camera = BrokerCamera(broker.subscribe(), broker=broker)
+    return camera, build_policy(autonomy_config)

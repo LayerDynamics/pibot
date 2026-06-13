@@ -49,7 +49,11 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32
       - name: Compile the AVR sketch
-        run: arduino-cli compile --fqbn arduino:avr:uno firmware/pibot_arduino
+        # The wired-Arduino sketch needs the Servo library (not bundled with the AVR core in
+        # current arduino-cli); install it before compiling.
+        run: |
+          arduino-cli lib install Servo
+          arduino-cli compile --fqbn arduino:avr:uno firmware/pibot_arduino
       - name: Compile the ESP32 controller + TCP bridge
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 firmware/pibot_esp32
@@ -62,3 +66,48 @@ jobs:
           # (marker 'toolchain'), so select them explicitly now that the cores are installed.
           .venv/bin/pytest tests/test_echo_roundtrip.py -q
           .venv/bin/pytest -o addopts="" -m toolchain tests/test_firmware_compiles.py -q
+
+  desktop:
+    name: Desktop app (frontend lint/typecheck/test + Rust gate)
+    # The PiBot Mission Control app (SPEC-3 / M12) targets macOS; Tauri's Rust build
+    # needs the platform webview, so this job runs on macOS.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install frontend deps
+        run: cd app && pnpm install --frozen-lockfile
+      - name: Frontend gate (lint + typecheck + test)
+        run: |
+          cd app
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+      - name: Provide a placeholder sidecar (externalBin existence check)
+        # The Rust gate runs cargo fmt/clippy/test to validate the app's Rust code — it does
+        # NOT run `tauri build`/bundle. tauri-build (build.rs) only checks that the externalBin
+        # file *exists* (binaries/ is gitignored), so the real PyInstaller sidecar
+        # (app/scripts/build-sidecar.sh, exercised by tests/test_mc_packaging.py) is not needed
+        # here. Provide an empty executable named for the host triple so the check passes.
+        run: |
+          triple="$(rustc -vV | sed -n 's/^host: //p')"
+          mkdir -p app/src-tauri/binaries
+          install -m 0755 /dev/null "app/src-tauri/binaries/pibot-mc-host-${triple}"
+          echo "placeholder externalBin: pibot-mc-host-${triple}"
+
+      - name: Rust gate (fmt + clippy + test)
+        # Uses the committed Cargo.lock (time pinned to 0.3.47) so the cookie/time
+        # build break can't recur in CI.
+        run: |
+          cd app/src-tauri
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test

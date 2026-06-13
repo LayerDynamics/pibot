@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+
 from agent import telemetry
 from agent.telemetry import (
     RobotTelemetry,
@@ -74,6 +76,20 @@ def test_read_vcgencmd_absent_tool_yields_none() -> None:
     health = read_vcgencmd(run=missing)
     assert health["temp_c"] is None
     assert health["throttled"] is None
+
+
+def test_read_vcgencmd_failing_tool_yields_none() -> None:
+    # Regression: on Ubuntu the vcgencmd binary exists but exits non-zero (no VCHI
+    # access), so _default_vcgencmd's check=True raises CalledProcessError — which is
+    # NOT an OSError/ValueError/IndexError. It must still degrade to None and never
+    # bubble up to 500 the whole /telemetry snapshot.
+    def failing(args: list[str]) -> str:
+        raise subprocess.CalledProcessError(255, ["vcgencmd", *args])
+
+    health = read_vcgencmd(run=failing)
+    assert health["temp_c"] is None
+    assert health["throttled"] is None
+    assert health["core_volt"] is None
 
 
 def test_system_stats_has_expected_keys_live() -> None:

@@ -28,8 +28,28 @@ inventory.local.toml
 firmware/**/secrets.h
 secrets.h
 
+# OS images for flashing (large binaries — never commit)
+/images/
+
 # OS
 .DS_Store
 resources
 # web-research skill output
 .web-research/
+
+# Scratch / experimental working files (not part of the package or the gate)
+tmp/
+app_patched.py
+
+# Desktop app (PiBot Mission Control — SPEC-3 / M12)
+app/node_modules/
+app/dist/
+app/coverage/
+app/src-tauri/target/
+app/src-tauri/gen/
+app/src-tauri/binaries/
+.hermes
+.venv-ml
+
+# Vendored Unity simulator (~640 MB) — host-only sim asset, never committed
+/vendor/

@@ -12,9 +12,13 @@ from aiohttp import web
 from agent import __version__
 from agent.app import build_app
 from agent.auth import load_token
+from agent.video import CameraBroker
 from pibot.config import Config, load_config
-from pibot.errors import UsageError
+from pibot.errors import PibotError, UsageError
+from pibot.logging import get_logger
 from pibot.transport.base import Transport
+
+_log = get_logger("pibotd")
 
 
 def build_transport(cfg: Config) -> Transport:
@@ -56,6 +60,27 @@ def build_transport(cfg: Config) -> Transport:
     raise UsageError(f"unknown transport {cfg.transport!r}")
 
 
+def build_camera_broker(cfg: Config) -> CameraBroker | None:
+    """Open the configured USB camera and wrap it in a shared frame broker for ``/video``.
+
+    The broker is the single capture loop the ``/video`` WS endpoint and the autonomy loop
+    both subscribe to. Returns ``None`` — leaving video disabled but the agent fully serving —
+    when the camera is unavailable: the ml stack (opencv) isn't installed (dev host / CI), no
+    camera is attached, or the device is busy. Camera/cv2 imports are lazy so the agent core
+    stays free of the ml stack until a camera is actually opened.
+    """
+    try:
+        from pibot.ml.camera import Camera
+
+        camera = Camera(cfg.camera_device)
+        camera.open()
+    except (ImportError, OSError, PibotError) as exc:
+        _log.info("camera %s unavailable (%s); /video disabled", cfg.camera_device, exc)
+        return None
+    _log.info("camera %s open; /video enabled at %d fps", cfg.camera_device, cfg.video_fps)
+    return CameraBroker(camera, fps=cfg.video_fps)
+
+
 def build_from_config(cfg: Config) -> web.Application:
     """Build the full agent app from configuration."""
     app = build_app(
@@ -65,6 +90,9 @@ def build_from_config(cfg: Config) -> web.Application:
         deadman_ms=cfg.watchdog_ms,
         max_rate_hz=cfg.teleop_rate_hz,
         encoding=cfg.encoding,
+        broker=build_camera_broker(cfg),
+        video_fps=cfg.video_fps,
+        video_max_dim=cfg.video_max_dim,
     )
     return app
 

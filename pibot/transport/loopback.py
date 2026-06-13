@@ -7,6 +7,7 @@ framing contract as the real serial/TCP backends without any hardware.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from pibot.transport.base import FrameBuffer, Transport, TransportError
@@ -39,7 +40,11 @@ class LoopbackTransport(Transport):
 
     def recv(self, timeout: float) -> bytes | None:
         self._require_open()
-        return self._buf.next_frame()
+        frame = self._buf.next_frame()
+        if frame is None and timeout > 0:
+            time.sleep(timeout)
+            frame = self._buf.next_frame()
+        return frame
 
     @property
     def is_open(self) -> bool:

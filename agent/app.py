@@ -32,6 +32,7 @@ from pibot.transport.base import Transport
 
 if TYPE_CHECKING:
     from agent.autonomy import AutonomyController
+    from agent.video import CameraBroker
 
 # Builds the (camera, policy) for an autonomy session from the agent's autonomy config.
 AutonomyFactory = Callable[[dict[str, Any]], "tuple[Any, Any]"]
@@ -54,6 +55,9 @@ class AgentState:
     autonomy: AutonomyController | None = None
     autonomy_config: dict[str, Any] = field(default_factory=dict)
     autonomy_factory: AutonomyFactory | None = None
+    broker: CameraBroker | None = None
+    video_fps: int = 10
+    video_max_dim: int = 640
 
 
 STATE: web.AppKey[AgentState] = web.AppKey("pibot_state", AgentState)
@@ -185,10 +189,21 @@ async def handle_autonomy_start(request: web.Request) -> web.Response:
         with contextlib.suppress(ValueError):  # JSONDecodeError subclasses ValueError
             body = await request.json()
 
-    from agent.autonomy import AutonomyController, build_runtime  # lazy: keep ml off import path
+    # Lazy import keeps the ml stack off agent.app's import path.
+    from agent.autonomy import AutonomyController, build_policy, build_runtime
 
-    factory = state.autonomy_factory or build_runtime
-    camera, policy = factory(dict(state.autonomy_config))
+    # An explicitly injected factory wins (tests). Otherwise, when the agent opened a shared
+    # camera broker at boot, subscribe to it so the /video WS and the autonomy loop consume one
+    # capture device; else build_runtime opens its own camera (standalone, no shared broker).
+    if state.autonomy_factory is not None:
+        camera, policy = state.autonomy_factory(dict(state.autonomy_config))
+    elif state.broker is not None:
+        from agent.video import BrokerCamera
+
+        camera = BrokerCamera(state.broker.subscribe(), broker=state.broker)
+        policy = build_policy(dict(state.autonomy_config))
+    else:
+        camera, policy = build_runtime(dict(state.autonomy_config))
     auto = AutonomyController(
         state.controller,
         state.policy_link,
@@ -230,6 +245,62 @@ async def handle_config_post(request: web.Request) -> web.Response:
     return web.json_response(state.config)
 
 
+async def _video_push(
+    ws: web.WebSocketResponse,
+    broker: CameraBroker,
+    state: AgentState,
+) -> None:
+    """Background task: pull frames from the broker and push header+JPEG to ``ws``."""
+    from agent.video import encode_jpeg
+
+    q = broker.subscribe()
+    seq = 0
+    try:
+        while not ws.closed:
+            try:
+                frame = await asyncio.wait_for(q.get(), timeout=1.0)
+            except TimeoutError:
+                continue
+            jpeg, w, h = await asyncio.to_thread(encode_jpeg, frame.data, state.video_max_dim)
+            hdr: dict[str, Any] = {
+                "seq": seq,
+                "ts": frame.ts,
+                "w": w,
+                "h": h,
+                "fmt": "jpeg",
+            }
+            await ws.send_json(hdr)
+            await ws.send_bytes(jpeg)
+            seq += 1
+    except (ConnectionResetError, asyncio.CancelledError):
+        pass
+    finally:
+        broker.unsubscribe(q)
+
+
+async def handle_ws_video(request: web.Request) -> web.StreamResponse:
+    """WS /video — MJPEG stream behind bearer auth: JSON header + binary JPEG per frame."""
+    state = request.app[STATE]
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    broker = state.broker
+    if broker is None:
+        await ws.close()
+        return ws
+
+    pusher = asyncio.create_task(_video_push(ws, broker, state))
+    try:
+        async for msg in ws:
+            if msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSING, web.WSMsgType.ERROR):
+                break
+    finally:
+        pusher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await pusher
+    return ws
+
+
 # ---- app construction ----------------------------------------------------
 
 
@@ -260,6 +331,9 @@ def build_app(
     telemetry_interval: float = 0.1,
     autonomy_config: dict[str, Any] | None = None,
     autonomy_factory: AutonomyFactory | None = None,
+    broker: CameraBroker | None = None,
+    video_fps: int = 10,
+    video_max_dim: int = 640,
 ) -> web.Application:
     """Build the full pibotd agent: base app + transport controller + control/telemetry routes."""
     state = AgentState(
@@ -269,6 +343,9 @@ def build_app(
         telemetry_interval=telemetry_interval,
         autonomy_config=autonomy_config or {},
         autonomy_factory=autonomy_factory,
+        broker=broker,
+        video_fps=video_fps,
+        video_max_dim=video_max_dim,
     )
     state.controller = TransportController(
         transport,
@@ -282,10 +359,14 @@ def build_app(
     async def _startup(_app: web.Application) -> None:
         assert state.controller is not None
         await state.controller.start()
+        if state.broker is not None:
+            await state.broker.start()
 
     async def _cleanup(_app: web.Application) -> None:
         if state.autonomy is not None:
             await state.autonomy.stop()
+        if state.broker is not None:
+            await state.broker.stop()
         assert state.controller is not None
         await state.controller.stop()
 
@@ -299,4 +380,5 @@ def build_app(
     app.router.add_delete("/autonomy", handle_autonomy_stop)
     app.router.add_get("/config", handle_config_get)
     app.router.add_post("/config", handle_config_post)
+    app.router.add_get("/video", handle_ws_video)
     return app

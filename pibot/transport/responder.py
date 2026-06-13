@@ -7,6 +7,7 @@ path (``pibot cmd``, the M4 agent) can run with no Arduino attached — for test
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from pibot.control.echo import EchoResponder
@@ -36,7 +37,11 @@ class ResponderTransport(Transport):
     def recv(self, timeout: float) -> bytes | None:
         if not self._open:
             raise TransportError("responder transport not open")
-        return self._rx.next_frame()
+        frame = self._rx.next_frame()
+        if frame is None and timeout > 0:
+            time.sleep(timeout)
+            frame = self._rx.next_frame()
+        return frame
 
     @property
     def is_open(self) -> bool:

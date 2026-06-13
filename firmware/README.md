@@ -30,7 +30,7 @@ Guards 3–4 are **independent of the Pi**: a frozen brain or dead link still ha
 ## Wiring — `pibot_esp32` (set in the CONFIG block)
 
 - Dual H-bridge (TB6612/L298-style): left PWM/DIR on GPIO `25`/`26`, right on `32`/`33`.
-- Servos on GPIO `18`/`19` (LEDC 50 Hz).
+- Servos via PCA9685 shield on I²C: SDA=GPIO `21`, SCL=GPIO `22`. Up to 16 channels (IDs 0–15).
 - Battery divider on GPIO `34` (ADC1); set `VBAT_SCALE` for your divider.
 - Set `WIFI_SSID` / `WIFI_PASS`.
 
@@ -66,6 +66,104 @@ core's `espota.py`. Wi-Fi credentials live in a gitignored `secrets.h` (copy
 `secrets.h.example`); set `PIBOT_OTA_PASS` there and pass `--ota-pass` to require a password.
 The board mDNS-advertises as `pibot-esp32.local`. The robot stops its motors before an OTA
 write begins, so it never drives mid-update.
+
+## Wiring — PCA9685 servo shield (16-channel)
+
+The PCA9685 expands servo outputs from 2 to 16 via I²C. It replaces the direct
+LEDC servo pins in `pibot_esp32` and the `Servo.h` pins in `pibot_arduino`.
+
+```mermaid
+graph LR
+
+    subgraph ESP32["ESP32 DevKit"]
+        direction TB
+        e3v3["3V3"]
+        egnd1["GND"]
+        egpio21["GPIO 21  SDA"]
+        egpio22["GPIO 22  SCL"]
+        egpio25["GPIO 25  L_PWM"]
+        egpio26["GPIO 26  L_DIR"]
+        egpio32["GPIO 32  R_PWM"]
+        egpio33["GPIO 33  R_DIR"]
+        egpio18["GPIO 18  SERVO_0"]
+        egpio19["GPIO 19  SERVO_1"]
+        egpio34["GPIO 34  VBAT_ADC"]
+        egnd2["GND"]
+    end
+
+    subgraph PCA9685["PCA9685  0x40"]
+        direction TB
+        pvcc["VCC"]
+        pgnd["GND"]
+        psda["SDA"]
+        pscl["SCL"]
+        poe["OE  active-low"]
+        pvplus["V+  servo rail"]
+        pch0["CH 0"]
+        pch1["CH 1"]
+        pch2["CH 2"]
+        pch3["CH 3"]
+        pch4["CH 4"]
+        pch5["CH 5"]
+        pch6["CH 6"]
+        pch7["CH 7"]
+        pch8["CH 8"]
+        pch9["CH 9"]
+        pch10["CH 10"]
+        pch11["CH 11"]
+        pch12["CH 12"]
+        pch13["CH 13"]
+        pch14["CH 14"]
+        pch15["CH 15"]
+    end
+
+    subgraph SERVOPSU["Servo PSU"]
+        direction TB
+        spos["5V - 7.4V"]
+        sneg["GND"]
+    end
+
+    subgraph SERVOS["Servos  0-15"]
+        direction TB
+        srv["3-wire  SIG / VCC / GND"]
+    end
+
+    e3v3    -->|"logic power"| pvcc
+    egnd1   -->|"GND"| pgnd
+    egpio21 -->|"I2C SDA"| psda
+    egpio22 -->|"I2C SCL"| pscl
+
+    spos -->|"servo power"| pvplus
+    sneg -->|"common GND"| pgnd
+
+    pch0  --> srv
+    pch1  --> srv
+    pch2  --> srv
+    pch3  --> srv
+    pch4  --> srv
+    pch5  --> srv
+    pch6  --> srv
+    pch7  --> srv
+    pch8  --> srv
+    pch9  --> srv
+    pch10 --> srv
+    pch11 --> srv
+    pch12 --> srv
+    pch13 --> srv
+    pch14 --> srv
+    pch15 --> srv
+```
+
+**Rules:**
+
+- `V+` (green screw terminal) is **never** connected to the ESP32 — it needs its own
+  supply. Servos draw 200–500 mA each; running them off the ESP32 3.3 V rail will brown
+  it out immediately.
+- GND is **shared**: ESP32 GND, PCA9685 GND, and servo PSU GND must all join at one
+  point. Without a common ground the I²C bus has no reference and won't work.
+- ESP32 is 3.3 V logic → PCA9685 accepts 3.3 V directly. No level shifter needed.
+- Default I²C address is `0x40`. To chain a second shield, bridge solder jumper **A0**
+  on the second board → address becomes `0x41`.
 
 ## Wired transports — GPIO-UART & I²C level requirements
 
