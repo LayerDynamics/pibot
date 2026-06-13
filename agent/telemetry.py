@@ -8,6 +8,7 @@ produces the snapshot schema from SPEC-1 §7 that the agent serves over ``/telem
 from __future__ import annotations
 
 import re
+import subprocess
 from collections.abc import Callable
 from typing import Any
 
@@ -63,28 +64,28 @@ def parse_service_state(out: str) -> str:
 
 
 def _default_vcgencmd(args: list[str]) -> str:
-    import subprocess
-
     return subprocess.run(
         ["vcgencmd", *args], capture_output=True, text=True, timeout=5, check=True
     ).stdout
 
 
 def read_vcgencmd(run: VcgencmdRun | None = None) -> dict[str, Any]:
-    """Read SoC temp / throttle / core voltage. Fields are None if vcgencmd is absent."""
+    """Read SoC temp / throttle / core voltage. Fields are None if vcgencmd is absent OR
+    fails (e.g. on Ubuntu, where the binary exists but exits non-zero / lacks VCHI access) —
+    a single missing metric must never 500 the whole /telemetry snapshot."""
     run = run or _default_vcgencmd
     out: dict[str, Any] = {"temp_c": None, "throttled": None, "core_volt": None}
     try:
         out["temp_c"] = parse_temp(run(["measure_temp"]))
-    except (OSError, ValueError, IndexError):
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         pass
     try:
         out["throttled"] = decode_throttled(run(["get_throttled"]))
-    except (OSError, ValueError, IndexError):
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         pass
     try:
         out["core_volt"] = parse_volts(run(["measure_volts", "core"]))
-    except (OSError, ValueError, IndexError):
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         pass
     return out
 

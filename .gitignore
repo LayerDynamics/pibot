@@ -50,3 +50,6 @@ app/src-tauri/gen/
 app/src-tauri/binaries/
 .hermes
 .venv-ml
+
+# Vendored Unity simulator (~640 MB) — host-only sim asset, never committed
+/vendor/
