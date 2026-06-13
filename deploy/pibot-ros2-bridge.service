@@ -1,0 +1,20 @@
+[Unit]
+# PiBot <-> ROS 2 bridge: /cmd_vel -> drive, and pibot telemetry/estop/battery/camera -> topics.
+# Optional (ROS 2 deviation from SPEC-2): only install where a sourced ROS 2 is present.
+Description=PiBot <-> ROS 2 bridge (pibot.ros2.bridge)
+After=network-online.target pibotd.service
+Wants=network-online.target pibotd.service
+
+[Service]
+Type=simple
+User=ubuntu
+# pibot is on PYTHONPATH (deployed, not pip-installed); sourcing ROS 2 prepends rclpy + msgs.
+Environment=PYTHONPATH=/opt/pibot/current
+ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec python3 -m pibot.ros2.bridge'
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

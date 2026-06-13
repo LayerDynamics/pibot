@@ -77,7 +77,7 @@ markers = [
 
 [tool.coverage.run]
 source = ["pibot", "agent"]
-omit = ["pibot/__main__.py", "agent/__main__.py"]
+omit = ["pibot/__main__.py", "agent/__main__.py", "pibot/ros2/bridge.py"]
 
 [tool.coverage.report]
 fail_under = 80
