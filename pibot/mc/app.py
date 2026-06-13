@@ -45,9 +45,32 @@ PUBLIC_PATHS: frozenset[str] = frozenset()
 
 _Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
+# The webview serves the app from a cross-origin context (`tauri://localhost`,
+# `http://tauri.localhost`, or the `http://localhost:1420` dev server), so its fetches to
+# this loopback sidecar are cross-origin and must clear CORS. CORS is *not* the security
+# boundary — loopback + per-launch token still is; these headers only let the browser read
+# the replies it is already authorised to make.
+_CORS_METHODS = "GET, POST, PUT, DELETE, OPTIONS"
+_CORS_ALLOW_HEADERS = "Authorization, Content-Type"
+
+
+def _cors_headers(request: web.Request) -> dict[str, str]:
+    return {
+        "Access-Control-Allow-Origin": request.headers.get("Origin", "*"),
+        "Access-Control-Allow-Methods": _CORS_METHODS,
+        "Access-Control-Allow-Headers": _CORS_ALLOW_HEADERS,
+        "Access-Control-Max-Age": "600",
+        "Vary": "Origin",
+    }
+
 
 @web.middleware
 async def auth_middleware(request: web.Request, handler: _Handler) -> web.StreamResponse:
+    # CORS preflight: a non-simple request (custom `Authorization` header) makes the browser
+    # send an unauthenticated `OPTIONS` first — it carries no token, so it must be answered
+    # *before* the auth gate, otherwise every cross-origin call 401s on its preflight.
+    if request.method == "OPTIONS":
+        return web.Response(status=204, headers=_cors_headers(request))
     if request.path in PUBLIC_PATHS:
         return await handler(request)
     state = request.app[STATE]
@@ -59,11 +82,19 @@ async def auth_middleware(request: web.Request, handler: _Handler) -> web.Stream
         if query_token:
             auth_header = f"Bearer {query_token}"
     reject = authorize(request.remote, auth_header, state.token)
+    # Auth failures carry CORS headers too: without them the browser masks the real status
+    # as an opaque CORS error, hiding the 401/403 from the operator and from debugging.
     if reject == 403:
-        raise web.HTTPForbidden(text="loopback only")
+        raise web.HTTPForbidden(text="loopback only", headers=_cors_headers(request))
     if reject == 401:
-        raise web.HTTPUnauthorized(text="missing or invalid bearer token")
-    return await handler(request)
+        raise web.HTTPUnauthorized(
+            text="missing or invalid bearer token", headers=_cors_headers(request)
+        )
+    response = await handler(request)
+    # Skip already-sent responses (WebSocket upgrades); WS handshakes aren't CORS-gated.
+    if not response.prepared:
+        response.headers.update(_cors_headers(request))
+    return response
 
 
 async def handle_health(request: web.Request) -> web.Response:

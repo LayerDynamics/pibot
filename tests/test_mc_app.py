@@ -89,6 +89,67 @@ def test_health_reflects_connection_state() -> None:
     _run(body())
 
 
+# ---- CORS for the Tauri webview (cross-origin loopback calls) ------------
+
+
+def test_cors_preflight_is_allowed_without_token() -> None:
+    """A CORS preflight (OPTIONS, no Authorization) must succeed with CORS headers.
+
+    Regression: the auth gate used to 401 the unauthenticated preflight (browsers strip the
+    Authorization header from preflights), so every cross-origin webview call to the sidecar
+    failed before the real request was ever sent.
+    """
+
+    async def body() -> None:
+        app = create_mc_app(token="secret")
+        async with TestClient(TestServer(app)) as c:
+            r = await c.options(
+                "/api/robots",
+                headers={
+                    "Origin": "tauri://localhost",
+                    "Access-Control-Request-Method": "GET",
+                    "Access-Control-Request-Headers": "authorization",
+                },
+            )
+            assert r.status in (200, 204)
+            assert r.headers["Access-Control-Allow-Origin"] == "tauri://localhost"
+            assert "authorization" in r.headers["Access-Control-Allow-Headers"].lower()
+            assert "GET" in r.headers["Access-Control-Allow-Methods"]
+
+    _run(body())
+
+
+def test_successful_response_carries_cors_headers() -> None:
+    """An authenticated response must echo Access-Control-Allow-Origin so the cross-origin
+    webview is allowed to read it."""
+
+    async def body() -> None:
+        app = create_mc_app(token="secret")
+        async with TestClient(TestServer(app)) as c:
+            r = await c.get(
+                "/api/health",
+                headers={"Authorization": "Bearer secret", "Origin": "tauri://localhost"},
+            )
+            assert r.status == 200
+            assert r.headers["Access-Control-Allow-Origin"] == "tauri://localhost"
+
+    _run(body())
+
+
+def test_auth_failure_still_carries_cors_headers() -> None:
+    """A 401 must carry CORS headers too, otherwise the browser surfaces an opaque CORS
+    error instead of the real auth status."""
+
+    async def body() -> None:
+        app = create_mc_app(token="secret")
+        async with TestClient(TestServer(app)) as c:
+            r = await c.get("/api/health", headers={"Origin": "tauri://localhost"})
+            assert r.status == 401
+            assert r.headers["Access-Control-Allow-Origin"] == "tauri://localhost"
+
+    _run(body())
+
+
 # ---- real loopback bind via serve() --------------------------------------
 
 

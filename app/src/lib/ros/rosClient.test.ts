@@ -12,6 +12,10 @@ vi.mock("roslib", () => {
     on = vi.fn();
     close = vi.fn();
     constructor(opts: { url: string }) {
+      // Mirror WKWebView: constructing a WebSocket with a rejected URL throws synchronously.
+      if (opts.url === "ws://throws") {
+        throw new DOMException("The string did not match the expected pattern.", "SyntaxError");
+      }
       this.url = opts.url;
       hoisted.lastRos = this;
     }
@@ -64,6 +68,18 @@ describe("rosClient", () => {
     const sent = cmd?.publish.mock.calls[0][0] as { linear: { x: number }; angular: { z: number } };
     expect(sent.linear.x).toBe(0.5);
     expect(sent.angular.z).toBe(-0.2);
+  });
+
+  it("reports error status (not an uncaught throw) when the socket URL is rejected", () => {
+    // Regression: roslib's `new Ros` builds the WebSocket synchronously, so a malformed or
+    // CSP-blocked URL threw a SyntaxError straight out of the click handler, freezing the
+    // panel on "connecting". connect() must catch it and report "error".
+    const status: string[] = [];
+    const link = new RosLink();
+    expect(() => link.connect("ws://throws", { onStatus: (s) => status.push(s) })).not.toThrow();
+    expect(status).toContain("connecting");
+    expect(status).toContain("error");
+    expect(link.connected).toBe(false);
   });
 
   it("close() tears down the ros connection", () => {

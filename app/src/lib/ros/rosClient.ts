@@ -41,7 +41,17 @@ export class RosLink {
   connect(url: string, handlers: RosHandlers): void {
     this.close();
     handlers.onStatus("connecting");
-    const ros = new Ros({ url });
+    let ros: Ros;
+    try {
+      // `new Ros` opens the WebSocket synchronously; a malformed URL (e.g. an empty robot
+      // address -> `ws://:9090`) or a CSP-blocked origin makes WKWebView throw a SyntaxError
+      // right here. Surface it as an error status instead of letting an uncaught exception
+      // escape the click handler and freeze the panel on "connecting".
+      ros = new Ros({ url });
+    } catch {
+      handlers.onStatus("error");
+      return;
+    }
     this.ros = ros;
 
     ros.on("connection", () => handlers.onStatus("connected"));
