@@ -141,7 +141,11 @@ fn spawn_child(argv: &[String]) -> std::io::Result<Child> {
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        // Inherit stderr rather than pipe it: nothing here drains a piped stderr, so once the
+        // Python sidecar writes more than the OS pipe buffer (~64 KB of tracebacks/logs) it
+        // would block forever on the next write and hang. Inheriting sends those diagnostics to
+        // the app's own stderr/log instead, with no buffer to fill.
+        .stderr(Stdio::inherit())
         .spawn()
 }
 

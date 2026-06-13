@@ -44,7 +44,10 @@ export default function Data({ ep }: Props) {
     a.href = url;
     a.download = `telemetry.${fmt}`;
     a.click();
-    URL.revokeObjectURL(url);
+    // Defer revocation: WebKit (this app's WKWebView, and Safari/Firefox) may not have started
+    // reading the blob by the time a.click() returns, and a synchronous revoke can abort the
+    // download. A short timeout lets the download bind to the URL first.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   const TABS: Array<{ id: Tab; label: string }> = [

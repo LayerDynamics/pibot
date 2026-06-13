@@ -90,4 +90,13 @@ describe("teleopStore", () => {
     useTeleopStore.getState().keyDown("KeyW");
     expect(mockSend).not.toHaveBeenCalled();
   });
+
+  it("ignores OS key-repeat: holding a key emits only one drive frame", () => {
+    const ws = makeWs();
+    useTeleopStore.getState().setWs(ws);
+    useTeleopStore.getState().keyDown("KeyW");
+    useTeleopStore.getState().keyDown("KeyW"); // browser fires keydown repeatedly while held
+    useTeleopStore.getState().keyDown("KeyW");
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
 });

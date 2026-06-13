@@ -31,6 +31,10 @@ export const useTeleopStore = create<TeleopState>((set, get) => ({
       set({ pressedKeys: new Set<string>() });
       return;
     }
+    // Browsers fire keydown repeatedly while a key is held. The held set is unchanged, so the
+    // frame would be identical — skip it. The sidecar's CadenceKeeper keeps re-sending the last
+    // drive to feed pibotd's watchdog, so suppressing the repeat does not stall the robot.
+    if (pressedKeys.has(code)) return;
     const next = new Set(pressedKeys);
     next.add(code);
     const { v, w } = teleopMap(next);
