@@ -16,10 +16,11 @@ import Dashboard from "./screens/Dashboard";
 import Data from "./screens/Data";
 import Drive from "./screens/Drive";
 import Provisioning from "./screens/Provisioning";
+import Ros from "./screens/Ros";
 import { useConnectionStore } from "./stores/connectionStore";
 import { useNotifyStore } from "./stores/notifyStore";
 
-type ScreenKey = "dashboard" | "drive" | "autonomy" | "data" | "provisioning";
+type ScreenKey = "dashboard" | "drive" | "autonomy" | "data" | "provisioning" | "ros";
 
 const SCREENS: Array<{ key: ScreenKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
@@ -27,6 +28,7 @@ const SCREENS: Array<{ key: ScreenKey; label: string }> = [
   { key: "autonomy", label: "Autonomy" },
   { key: "data", label: "Data" },
   { key: "provisioning", label: "Provisioning" },
+  { key: "ros", label: "ROS" },
 ];
 
 function connectionLabel(state: string, robot: string | null): string {
@@ -120,6 +122,7 @@ export default function App() {
         {screen === "autonomy" && <Autonomy />}
         {screen === "data" && <Data ep={ep} />}
         {screen === "provisioning" && <Provisioning ep={ep} />}
+        {screen === "ros" && <Ros />}
       </main>
     </div>
   );

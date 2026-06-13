@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Allow the WKWebView to open insecure ws:// to the robot's rosbridge on the Nebula
+       overlay (192.168.100.x is RFC1918, covered by NSAllowsLocalNetworking). Without this,
+       App Transport Security blocks the ROS panel's rosbridge connection. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+</dict>
+</plist>

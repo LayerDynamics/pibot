@@ -1,0 +1,19 @@
+[Unit]
+# rosbridge WebSocket server (port 9090): bridges the ROS 2 graph to JSON-over-WebSocket so
+# Mission Control's webview (roslibjs) can subscribe to /pibot/* topics and publish /cmd_vel.
+# Reachable over Nebula (ufw already allows inbound on nebula1). ROS 2 deviation from SPEC-2.
+Description=ROS 2 rosbridge WebSocket server (Mission Control ROS panel)
+After=network-online.target pibot-ros2-bridge.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/bin/bash -c 'source /opt/ros/jazzy/setup.bash && exec ros2 launch rosbridge_server rosbridge_websocket_launch.xml'
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

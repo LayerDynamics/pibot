@@ -13,7 +13,7 @@ describe("App shell", () => {
     expect(screen.getByTestId("connection-indicator")).toBeInTheDocument();
   });
 
-  it("navigates between all five operator screens", () => {
+  it("navigates between all six operator screens", () => {
     render(<App />);
     // Dashboard is the default screen (no telemetry yet -> empty state).
     expect(screen.getByTestId("dashboard-empty")).toBeInTheDocument();
@@ -29,6 +29,9 @@ describe("App shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Provisioning" }));
     expect(screen.getByTestId("provisioning-screen")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "ROS" }));
+    expect(screen.getByTestId("ros-screen")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
     expect(screen.getByTestId("dashboard-empty")).toBeInTheDocument();
