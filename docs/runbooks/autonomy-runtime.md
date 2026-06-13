@@ -52,7 +52,7 @@ python tools/pipe_check.py --host 192.168.100.1 --port 8000 --rounds 50   # 4. p
 ## Results
 | # | Check | Status | Notes |
 |---|-------|--------|-------|
-| 1 | SSH-key login (lockout fixed) | ⬜ pending | |
-| 2 | NVMe clean under load (ASPM fix) | ⬜ pending | |
-| 3 | Power-yank ×5, rootfs intact | ⬜ pending | |
-| 4 | pipe_check round-trips + latency | ⬜ pending | |
+| 1 | SSH-key login (lockout fixed) | ✅ 2026-06-13 | key-only (`passwordauthentication no`); deploy + all ops run over SSH keys |
+| 2 | NVMe clean under load (ASPM fix) | ✅ 2026-06-13 | `dmesg` clean — no AER/controller errors on Ubuntu 24.04 (NVMe root, 235G) |
+| 3 | Power-yank ×5, rootfs intact | ⬜ pending | needs physical power-cycling. **Note:** this Ubuntu rootfs is plain ext4 (the Bookworm overlayfs RO-root was *not* ported), so power-loss durability is a real risk area to verify/harden |
+| 4 | pipe_check round-trips + latency | ✅ 2026-06-13 | Pi→Mac over **Nebula**, 50 rounds: min 13 / median 19 / **p95 53 ms**; chunk (50,8). Stub policy server (`~/.config/pibot/policy-stub/`) — pipe/serialization latency, **not** model inference |

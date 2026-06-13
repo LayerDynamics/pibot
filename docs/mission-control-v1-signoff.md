@@ -62,16 +62,21 @@ manual E2E), which is still open — see the Performance and E2E sections below.
 
 Hardware-dependent targets require a real Pi + M4 Max stand. Mark each when verified.
 
+**2026-06-13 — live-link measurements** taken Mac (M4 Max) → Pi 5 (Ubuntu 24.04, NVMe) over
+the **Nebula overlay** (`192.168.100.0/24`), `pibotd` on the **responder** transport (no ESP32
+wired yet). The four infra/link targets below now PASS; the USB-serial teleop and policy-infer
+rows still need the wired Arduino and the policy server respectively.
+
 | Target | Threshold | Result | Date | Notes |
 |--------|-----------|--------|------|-------|
-| Teleop round-trip latency (USB serial) | < 50 ms P99 | ⬜ pending | | |
-| Teleop round-trip latency (Wi-Fi/TCP) | < 200 ms P99 | ⬜ pending | | |
-| Sidecar startup time | < 2 s | ⬜ pending | | |
-| Connect → first telemetry tick | < 5 s | ⬜ pending | | |
-| E-stop latch response | < 100 ms | ⬜ pending | | |
+| Teleop round-trip latency (USB serial) | < 50 ms P99 | ⬜ pending | | needs the wired Arduino (USB-serial transport) |
+| Teleop round-trip latency (Wi-Fi/TCP) | < 200 ms P99 | ✅ 26 ms P99 | 2026-06-13 | Mac→Pi over Nebula, **responder** transport; `drive`→reply RTT (n=50, p50 5 / p95 20). Real ESP32 adds firmware time. Safety rate-limiter confirmed active. |
+| Sidecar startup time | < 2 s | ✅ 140 ms | 2026-06-13 | `python -m pibot.mc` launch → `PORT=` stdout (best of 3) |
+| Connect → first telemetry tick | < 5 s | ✅ 91 ms | 2026-06-13 | `AgentClient` open → first `/telemetry` over Nebula |
+| E-stop latch response | < 100 ms | ✅ 70 ms P99 | 2026-06-13 | POST `/estop` Mac→Pi over Nebula (n=20, p50 13); latch verified then cleared |
 | Autonomy drop-to-stop on link loss | ≤ watchdog_ms | ⬜ pending | | validated in-process by test suite |
-| Metrics write throughput | ≥ 20 snapshots/s | ⬜ pending | | flush_size=50 batch |
-| Policy infer latency (stock π₀.₅) | < 500 ms P99 | ⬜ pending | | hardware-dependent |
+| Metrics write throughput | ≥ 20 snapshots/s | ⬜ pending | | flush_size=50 batch; test-validated, live bench pending |
+| Policy infer latency (stock π₀.₅) | < 500 ms P99 | ⬜ pending | | hardware-dependent (needs the policy server — T7.6) |
 
 ## Host-marked E2E flows (macOS, hardware stand required)
 
