@@ -26,6 +26,7 @@ RUNBOOKS = [
     "autonomy-bringup.md",
     "data-collection.md",
     "finetune-and-serve.md",
+    "mission-control.md",
 ]
 
 # Every markdown doc we own and lint (runbooks + top-level user docs).
@@ -34,6 +35,7 @@ LINTED = [RUNBOOKS_DIR / name for name in RUNBOOKS] + [
     REPO / "docs" / "usage.md",
     REPO / "docs" / "hardware-e2e-signoff.md",
     REPO / "docs" / "autonomy-e2e-signoff.md",
+    REPO / "docs" / "mission-control-v1-signoff.md",
 ]
 
 

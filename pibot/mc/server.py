@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from collections.abc import Callable
 
 from aiohttp import web
 
 from pibot.mc.app import create_mc_app
+from pibot.mc.state import McState
 
 # Loopback only — the control plane is never exposed on a routable interface (SPEC-3 §3.7).
 HOST = "127.0.0.1"
@@ -30,7 +32,13 @@ async def serve(
     With ``port=0`` the OS assigns a free port; the bound port is reported via
     ``on_bound`` (tests) and printed as ``PORT=<n>`` (the Rust supervisor).
     """
-    app = create_mc_app(token=token)
+
+    def _on_robot_connect(url: str, token_: str | None) -> None:
+        payload = json.dumps({"url": url, "token": token_})
+        print(f"ROBOT_ENDPOINT={payload}", flush=True)
+
+    state = McState(token=token, on_robot_connect=_on_robot_connect)
+    app = create_mc_app(state=state)
     runner = web.AppRunner(app)
     await runner.setup()
     try:

@@ -5,7 +5,7 @@
 | **Source spec** | [SPEC-1 — PiBot Control Suite](../specs/SPEC-1-pibot-control-suite.md) |
 | **Created** | 2026-06-11 |
 | **Plan set** | One file per milestone, M0 → M6 |
-| **Status** | Not started |
+| **Status** | ✅ M0–M6 shipped + committed — SPEC-1 software complete. Hardware E2E sign-off (T6.8) pending — `docs/hardware-e2e-signoff.md`. |
 
 This roadmap indexes the seven milestone plans. Each milestone file is
 self-contained and executable on its own (via `/lore:continue` or `/lore:execute`),

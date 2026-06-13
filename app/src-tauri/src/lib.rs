@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use supervisor::{Supervisor, SupervisorConfig};
 use tauri::Manager;
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
 /// Resolve the argv that launches the control-plane sidecar.
 ///
@@ -53,9 +54,14 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(app_state)
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::mc_endpoint,
-            commands::sidecar_status
+            commands::sidecar_status,
+            commands::cache_robot_endpoint,
+            commands::estop_now,
+            commands::pick_path,
         ])
         .setup(move |app| {
             if cfg!(debug_assertions) {
@@ -77,6 +83,14 @@ pub fn run() {
                             .state::<AppState>()
                             .set_url(format!("http://127.0.0.1:{port}"));
                     }
+                } else if let Some(rest) = line.strip_prefix("ROBOT_ENDPOINT=") {
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(rest.trim()) {
+                        let robot_url = val["url"].as_str().unwrap_or("").to_string();
+                        let robot_token = val["token"].as_str().map(String::from);
+                        handle
+                            .state::<AppState>()
+                            .cache_robot_endpoint(robot_url, robot_token);
+                    }
                 }
             });
             let probe: supervisor::Probe = Arc::new(|| true);
@@ -90,6 +104,28 @@ pub fn run() {
                 on_line,
             );
             app.state::<AppState>().set_supervisor(sup);
+
+            // Global e-stop shortcut: Ctrl+Shift+E (works even when the window is unfocused).
+            let estop_handle = app.handle().clone();
+            let estop_shortcut =
+                Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyE);
+            app.handle().global_shortcut().on_shortcut(
+                estop_shortcut,
+                move |_app, _shortcut, _event| {
+                    let state = estop_handle.state::<AppState>();
+                    if let Some((url, token)) = state.robot_endpoint() {
+                        let client = reqwest::Client::new();
+                        let mut req = client.post(format!("{}/estop", url.trim_end_matches('/')));
+                        if let Some(tok) = token {
+                            req = req.header("Authorization", format!("Bearer {tok}"));
+                        }
+                        tauri::async_runtime::spawn(async move {
+                            let _ = req.send().await;
+                        });
+                    }
+                },
+            )?;
+
             Ok(())
         })
         .run(tauri::generate_context!())

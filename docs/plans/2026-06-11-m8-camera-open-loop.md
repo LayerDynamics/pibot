@@ -10,7 +10,7 @@
 | **Depends on** | M7 (runtime + pipe) |
 | **Branch** | `m8-camera-open-loop` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started (planned — no code yet) |
+| **Status** | ✅ Software shipped + committed (T8.1–T8.5; gate-green). HIL pending hardware — T8.6 (real open-loop run). |
 
 **Goal:** Stream **real** camera observations to a stock π₀.₅ server and log the returned actions — with **zero actuation** (the hard gate before any closed-loop motion).
 **Architecture:** A USB-UVC camera module → `image_tools.resize_with_pad` 224×224; typed `Observation`/`Action` (contract-first, Appx B); `PibotEnvironment.get_observation`; an open-loop runner whose `apply_action` logs only.

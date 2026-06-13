@@ -248,7 +248,7 @@ async def _video_push(
         while not ws.closed:
             try:
                 frame = await asyncio.wait_for(q.get(), timeout=1.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
             jpeg, w, h = await asyncio.to_thread(encode_jpeg, frame.data, state.video_max_dim)
             hdr: dict[str, Any] = {

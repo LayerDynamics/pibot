@@ -152,9 +152,8 @@ def build_runtime(  # pragma: no cover - hardware: opencv camera + openpi websoc
     """
     from openpi_client import action_chunk_broker, websocket_client_policy
 
-    from pibot.ml.camera import Camera
-
     from agent.video import BrokerCamera, CameraBroker
+    from pibot.ml.camera import Camera
 
     raw_camera = Camera(autonomy_config.get("camera_device", "/dev/video0"))
     raw_camera.open()

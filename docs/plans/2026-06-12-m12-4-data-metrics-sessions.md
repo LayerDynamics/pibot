@@ -16,7 +16,7 @@
 | **Depends on** | M12.3 (autonomy + telemetry stream in place) |
 | **Branch** | `m12-4-data-metrics-sessions` |
 | **Date** | 2026-06-12 |
-| **Status** | Not started |
+| **Status** | Software complete in the working tree (T12.4.1–T12.4.7; suites green) but **UNCOMMITTED** on branch `m12-2-teleop-estop-video`. Data & Models screen mounted in the App shell (frontend integration, 2026-06-12). |
 
 ## In scope
 The SQLite metrics time-series (write/query/export/retention); the telemetry→metrics+session

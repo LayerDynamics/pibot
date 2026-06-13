@@ -146,3 +146,88 @@ def test_guard_allows_external_removable() -> None:
 def test_guard_refuses_wrong_size() -> None:
     with pytest.raises(PibotError, match="does not match"):
         assert_safe_target(_disk(size_bytes=2_000_000_000_000), expected_size=32_000_000_000)
+
+
+# ---- T12.5.5: MC + Tauri surface scans -----------------------------------
+
+
+_SECRET_PATTERNS = [
+    "HF_TOKEN",
+    "NEBULA_KEY",
+    "WIFI_PASSWORD",
+    "wifi_password",
+    "nebula_key",
+]
+
+_MC_GLOBS = [
+    "pibot/mc/**/*.py",
+    "app/src-tauri/**/*.json",
+    "app/src-tauri/**/*.toml",
+    "app/src/**/*.ts",
+    "app/src/**/*.tsx",
+]
+
+
+def _scan_for_pattern(pattern: str) -> list[str]:
+    """Return repo-relative paths of tracked files that literally contain the pattern."""
+    result = subprocess.run(
+        ["git", "grep", "-l", "--", pattern],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+    )
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def test_mc_surfaces_contain_no_hardcoded_secrets() -> None:
+    """No MC Python or Tauri config file contains a hardcoded secret pattern."""
+    for pattern in _SECRET_PATTERNS:
+        hits = _scan_for_pattern(pattern)
+        # Filter to only tracked files in the MC/Tauri surfaces.
+        mc_hits = [
+            h
+            for h in hits
+            if h.startswith("pibot/mc/")
+            or h.startswith("app/src-tauri/")
+            or h.startswith("app/src/")
+        ]
+        # Exclude test files (they contain the patterns in assertions, not production code).
+        mc_hits = [h for h in mc_hits if "/tests/" not in h and "test_" not in h]
+        assert not mc_hits, (
+            f"hardcoded secret pattern {pattern!r} found in MC/Tauri surface: {mc_hits}"
+        )
+
+
+def test_per_launch_token_not_tracked_by_git() -> None:
+    """The per-launch MC token (*.token files) must never be tracked."""
+    tracked = subprocess.run(
+        ["git", "ls-files"], cwd=REPO, capture_output=True, text=True
+    ).stdout.split()
+    token_files = [f for f in tracked if f.endswith(".token")]
+    assert not token_files, f"Token files are tracked by git: {token_files}"
+
+
+def test_tauri_conf_has_non_wildcard_csp() -> None:
+    """tauri.conf.json must have an explicit (non-null, non-wildcard) CSP."""
+    import json
+
+    conf_path = REPO / "app" / "src-tauri" / "tauri.conf.json"
+    conf = json.loads(conf_path.read_text(encoding="utf-8"))
+    csp = conf.get("app", {}).get("security", {}).get("csp")
+    assert csp is not None, "tauri.conf.json security.csp must not be null"
+    assert csp != "*", "tauri.conf.json CSP must not be a wildcard"
+    assert "default-src 'self'" in csp or "default-src" in csp, (
+        f"CSP should have a restrictive default-src, got: {csp!r}"
+    )
+
+
+def test_tauri_capabilities_no_blanket_shell_or_fs() -> None:
+    """The default capability must not grant blanket shell:* or fs:* permissions."""
+    import json
+
+    cap_path = REPO / "app" / "src-tauri" / "capabilities" / "default.json"
+    cap = json.loads(cap_path.read_text(encoding="utf-8"))
+    perms: list[str] = cap.get("permissions", [])
+    blanket = ("shell:allow-execute", "fs:allow-write", "shell:*", "fs:*")
+    blanket_bad = [p for p in perms if p in blanket]
+    assert not blanket_bad, f"default capability grants overly broad permissions: {blanket_bad}"

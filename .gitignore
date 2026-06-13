@@ -37,6 +37,10 @@ resources
 # web-research skill output
 .web-research/
 
+# Scratch / experimental working files (not part of the package or the gate)
+tmp/
+app_patched.py
+
 # Desktop app (PiBot Mission Control — SPEC-3 / M12)
 app/node_modules/
 app/dist/
@@ -44,3 +48,5 @@ app/coverage/
 app/src-tauri/target/
 app/src-tauri/gen/
 app/src-tauri/binaries/
+.hermes
+.venv-ml

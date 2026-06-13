@@ -16,7 +16,7 @@
 | **Depends on** | M12.4 (all other domains complete) |
 | **Branch** | `m12-5-provisioning-hardening-release` |
 | **Date** | 2026-06-12 |
-| **Status** | Not started |
+| **Status** | Software complete in the working tree (T12.5.1–T12.5.6, T12.5.8; suites green) but **UNCOMMITTED** on branch `m12-2-teleop-estop-video`. Provisioning screen + native-notification wiring integrated into the App shell (2026-06-12). T12.5.7 E2E honestly downgraded to manual/host-marked. **T12.5.9 V1 release gate OPEN** — perf targets ⬜ pending on hardware; real OS-notification delivery still needs the `@tauri-apps/plugin-notification` package + Rust plugin registration (currently a no-op mock alias). |
 
 ## In scope
 The ops-job runner + endpoints; the Provisioning screen with dry-run preview + modal confirm +

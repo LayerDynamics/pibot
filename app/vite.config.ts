@@ -8,6 +8,14 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   server: { port: 1420, strictPort: true },
+  resolve: {
+    alias: {
+      "@tauri-apps/plugin-notification": new URL(
+        "./src/__mocks__/tauri-plugin-notification.ts",
+        import.meta.url,
+      ).pathname,
+    },
+  },
   test: {
     environment: "jsdom",
     globals: true,

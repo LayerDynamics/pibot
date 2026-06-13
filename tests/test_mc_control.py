@@ -44,7 +44,6 @@ def _fake_pibotd(
                 if record is not None:
                     record.append(data)
                 cmd = data.get("cmd", "")
-                args = data.get("args", {})
                 seq = data.get("seq", 0)
                 if nak_cmd and cmd == nak_cmd:
                     reply = {"ack": False, "seq": seq, "nak": f"{cmd} clamped"}
@@ -156,9 +155,7 @@ def test_cadence_keeper_resends_last_drive() -> None:
 
                 # pibotd should have received more than one drive (the cadence repeats)
                 drive_count = sum(1 for r in received if r.get("cmd") == "drive")
-                assert drive_count >= 2, (
-                    f"cadence not firing: only {drive_count} drives received"
-                )
+                assert drive_count >= 2, f"cadence not firing: only {drive_count} drives received"
 
                 await ws.close()
 

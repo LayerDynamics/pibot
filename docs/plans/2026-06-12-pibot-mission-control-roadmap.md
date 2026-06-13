@@ -8,7 +8,7 @@
 | **Source spec** | [SPEC-3 — PiBot Mission Control](../specs/SPEC-3-pibot-mission-control.md) |
 | **Created** | 2026-06-12 |
 | **Plan set** | One file per milestone, **M12.1 → M12.5** (SPEC-3 build phases P1–P5) |
-| **Status** | Not started |
+| **Status** | M12.1 shipped + committed. M12.2–M12.5 software complete in the working tree (suites green) but **UNCOMMITTED** on branch `m12-2-teleop-estop-video`. Frontend integrated 2026-06-12 (all five screens mounted, functional e-stop, notification wiring). V1 release gate (perf + manual E2E) OPEN. |
 | **Delivery** | **One comprehensive V1 release** (SPEC-3 Decision D-4): the milestones are the internal engineering sequence; the app ships once, at the M12.5 release gate. |
 
 This roadmap indexes the five milestone plans for SPEC-3. Each milestone file is

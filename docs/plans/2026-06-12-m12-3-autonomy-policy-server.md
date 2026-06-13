@@ -16,7 +16,7 @@
 | **Depends on** | M12.2 (live ops, e-stop, video) |
 | **Branch** | `m12-3-autonomy-policy-server` |
 | **Date** | 2026-06-12 |
-| **Status** | Not started |
+| **Status** | Software complete in the working tree (T12.3.1–T12.3.5; Python/frontend/Rust suites green) but **UNCOMMITTED** on branch `m12-2-teleop-estop-video`. Autonomy screen mounted in the App shell (frontend integration, 2026-06-12). Host-marked: T12.3.6 integration (deselected in CI). |
 
 ## In scope
 The sidecar `/api/autonomy` (→ `pibotd /autonomy`); the policy-server manager

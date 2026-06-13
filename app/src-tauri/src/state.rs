@@ -1,5 +1,6 @@
 //! Shared application state managed by Tauri: the per-launch token, the discovered
-//! sidecar URL, and the sidecar supervisor handle.
+//! sidecar URL, the robot endpoint cache (for the e-stop failsafe), and the sidecar
+//! supervisor handle.
 
 use crate::commands::McEndpoint;
 use crate::supervisor::Supervisor;
@@ -8,6 +9,9 @@ use std::sync::Mutex;
 pub struct AppState {
     token: String,
     url: Mutex<Option<String>>,
+    /// Cached robot endpoint for the e-stop failsafe (wired from Python `on_connect`).
+    robot_url: Mutex<Option<String>>,
+    robot_token: Mutex<Option<String>>,
     supervisor: Mutex<Option<Supervisor>>,
 }
 
@@ -16,6 +20,8 @@ impl AppState {
         Self {
             token,
             url: Mutex::new(None),
+            robot_url: Mutex::new(None),
+            robot_token: Mutex::new(None),
             supervisor: Mutex::new(None),
         }
     }
@@ -34,6 +40,19 @@ impl AppState {
             url: self.url.lock().unwrap().clone().unwrap_or_default(),
             token: self.token.clone(),
         }
+    }
+
+    /// Cache the robot base URL + bearer token for the e-stop failsafe.
+    pub fn cache_robot_endpoint(&self, url: String, token: Option<String>) {
+        *self.robot_url.lock().unwrap() = Some(url);
+        *self.robot_token.lock().unwrap() = token;
+    }
+
+    /// Return `(robot_url, bearer_token)` if a robot has been connected.
+    pub fn robot_endpoint(&self) -> Option<(String, Option<String>)> {
+        let url = self.robot_url.lock().unwrap().clone()?;
+        let token = self.robot_token.lock().unwrap().clone();
+        Some((url, token))
     }
 
     pub fn set_supervisor(&self, s: Supervisor) {

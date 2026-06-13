@@ -16,7 +16,7 @@
 | **Depends on** | M12.1 (shell + sidecar + telemetry) |
 | **Branch** | `m12-2-teleop-estop-video` |
 | **Date** | 2026-06-12 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped — all T12.2.1–T12.2.9 software complete; Python 683 passed, frontend 57 passed, Rust 9 passed; safety-bypass + e-stop-under-loss regressions green |
 
 ## In scope
 The `pibotd` camera-frame broker refactor + `WS /video`; the sidecar video relay + control

@@ -101,9 +101,7 @@ def test_relay_forwards_frames_to_api_video() -> None:
             app = create_mc_app(state=state)
             async with TestClient(TestServer(app)) as c:
                 # Connect to the fake robot (this opens /video on the robot link)
-                resp = await c.post(
-                    "/api/connect", json={"robot": "bot"}, headers=_AUTH
-                )
+                resp = await c.post("/api/connect", json={"robot": "bot"}, headers=_AUTH)
                 assert resp.status == 201
 
                 # Subscribe to the relay
@@ -138,9 +136,7 @@ def test_slow_consumer_drops_frames_not_backpressures_source() -> None:
             )
             app = create_mc_app(state=state)
             async with TestClient(TestServer(app)) as c:
-                resp = await c.post(
-                    "/api/connect", json={"robot": "bot"}, headers=_AUTH
-                )
+                resp = await c.post("/api/connect", json={"robot": "bot"}, headers=_AUTH)
                 assert resp.status == 201
 
                 ws = await c.ws_connect("/api/video", headers=_AUTH)
@@ -173,9 +169,7 @@ def test_closing_api_video_does_not_affect_telemetry() -> None:
             )
             app = create_mc_app(state=state)
             async with TestClient(TestServer(app)) as c:
-                resp = await c.post(
-                    "/api/connect", json={"robot": "bot"}, headers=_AUTH
-                )
+                resp = await c.post("/api/connect", json={"robot": "bot"}, headers=_AUTH)
                 assert resp.status == 201
 
                 # Open both sockets

@@ -10,7 +10,7 @@
 | **Depends on** | SPEC-1 M0–M6 (shipped); research report reflash recipe; Nebula overlay |
 | **Branch** | `m7-runtime-and-pipe` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started (planned — no code yet) |
+| **Status** | ✅ Software shipped + committed (T7.1–T7.5; gate-green). HIL pending hardware — T7.6 (reflash + harden + prove-the-pipe). |
 
 **Goal:** A trustworthy reflashed Pi (Bookworm + research hardening) that round-trips the openpi policy websocket to the M4 Max — the foundation autonomy runs on.
 **Architecture:** Extend SPEC-1's flash/deploy with the hardened-runtime config builders; add the `pibot[ml]` optional extra carrying `openpi-client` (numpy<2.0 contained); a `simple_client` latency probe over Nebula.

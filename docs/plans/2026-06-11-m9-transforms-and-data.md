@@ -10,7 +10,7 @@
 | **Depends on** | M8 (camera + obs pipeline) |
 | **Branch** | `m9-transforms-and-data` |
 | **Date** | 2026-06-11 |
-| **Status** | Not started (planned — no code yet) |
+| **Status** | ✅ Software shipped + committed (T9.1–T9.5; gate-green). HIL pending hardware — T9.6 (record demonstrations + build dataset). |
 
 **Goal:** The server-side PiBot policy config (`PibotInputs`/`PibotOutputs` + norm stats) and a **LeRobot demonstration dataset** recorded via teleop for the three tasks — everything fine-tuning needs.
 **Architecture:** A `Runtime` subscriber logs `(obs, action, ts)`; a converter writes the LeRobot dataset; server transforms map PiBot obs/actions ↔ the model (UR5 template); `compute_norm_stats` over the dataset.

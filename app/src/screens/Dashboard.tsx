@@ -1,3 +1,4 @@
+import VideoCanvas from "../components/VideoCanvas";
 import { useTelemetryStore } from "../stores/telemetryStore";
 
 function Metric({ label, value, unit }: { label: string; value: unknown; unit?: string }) {
@@ -30,6 +31,7 @@ export default function Dashboard() {
 
   return (
     <div data-testid="dashboard" className="flex flex-col gap-4">
+      <VideoCanvas />
       {alerts.length > 0 && (
         <div
           data-testid="alerts"

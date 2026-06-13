@@ -53,3 +53,36 @@ export interface RobotEntry {
   link: string;
   pi: boolean;
 }
+
+export interface Episode {
+  id: string;
+  task: string;
+  length: number;
+  started: number;
+  ended: number;
+}
+
+export interface FineTuneRun {
+  id: string;
+  dataset: string;
+  status: string;
+  checkpoint_out: string | null;
+  served: boolean;
+}
+
+export interface TelemetryRow {
+  ts: number;
+  temp_c: number | null;
+  battery_v: number | null;
+  estop: number;
+  transport_open: number;
+  policy_connected: number;
+  last_infer_ms: number | null;
+  chunk_age_ms: number | null;
+}
+
+export interface HistoryQuery {
+  from: number;
+  to: number;
+  fields?: string[];
+}

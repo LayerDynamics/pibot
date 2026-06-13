@@ -9,7 +9,7 @@ re-implements the link: it delegates to the existing ``pibot.control.client.Agen
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import aiohttp
 
@@ -47,6 +47,8 @@ class RobotLink:
         self._on_connect = on_connect
         self._client: AgentClient | None = None
         self._robot: str | None = None
+        self._robot_url: str | None = None
+        self._robot_token: str | None = None
         self._video_relay: VideoRelay | None = None
         self._video_session: aiohttp.ClientSession | None = None
 
@@ -57,6 +59,14 @@ class RobotLink:
     @property
     def robot(self) -> str | None:
         return self._robot
+
+    @property
+    def robot_url(self) -> str | None:
+        return self._robot_url
+
+    @property
+    def robot_token(self) -> str | None:
+        return self._robot_token
 
     @property
     def video_relay(self) -> VideoRelay | None:
@@ -72,6 +82,8 @@ class RobotLink:
         await client.open()
         self._client = client
         self._robot = robot
+        self._robot_url = url
+        self._robot_token = token
         if self._on_connect is not None:
             # Hand the robot endpoint to the Rust core for the e-stop failsafe (M12.2).
             self._on_connect(url, token)
@@ -96,8 +108,35 @@ class RobotLink:
             await self._client.close()
             self._client = None
             self._robot = None
+            self._robot_url = None
+            self._robot_token = None
 
     def telemetry_stream(self) -> AsyncIterator[dict[str, Any]]:
         if self._client is None:
             raise RuntimeError("not connected")
         return self._client.telemetry_stream()
+
+    async def autonomy_start(
+        self,
+        *,
+        prompt: str,
+        max_speed: float | None = None,
+        control_hz: float | None = None,
+    ) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.autonomy_start(
+            prompt=prompt, max_speed=max_speed, control_hz=control_hz
+        )
+
+    async def autonomy_stop(self) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.autonomy_stop()
+
+    async def autonomy_status(self) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        snap = await self._client.telemetry()
+        policy = snap.get("policy")
+        return {"running": bool(policy and policy.get("connected")), "policy": policy}

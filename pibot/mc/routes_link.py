@@ -1,8 +1,8 @@
 """``/api/connect`` · ``/api/disconnect`` · ``WS /api/telemetry`` — the robot link + the
 relayed telemetry stream (SPEC-3 FR-3, FR-5).
 
-The telemetry WS forwards ``pibotd`` snapshot frames straight through to the webview; later
-milestones tee the same stream into the metrics + session recorders (M12.4).
+The telemetry WS forwards ``pibotd`` snapshot frames straight through to the webview and
+tees each snapshot into the MetricsStore when one is registered on the app (M12.4).
 """
 
 from __future__ import annotations
@@ -44,6 +44,18 @@ async def handle_disconnect(request: web.Request) -> web.Response:
     return web.json_response({"disconnected": True})
 
 
+async def handle_estop(request: web.Request) -> web.Response:
+    """POST /api/estop — relay an immediate e-stop to pibotd regardless of WS state."""
+    state = request.app[STATE]
+    if state.link is None or not state.link.connected:
+        raise web.HTTPServiceUnavailable(text="not connected to robot")
+    try:
+        result = await state.link._client.estop()  # type: ignore[union-attr]
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"estop failed: {exc}") from exc
+    return web.json_response(result)
+
+
 async def handle_telemetry_ws(request: web.Request) -> web.StreamResponse:
     state = request.app[STATE]
     ws = web.WebSocketResponse()
@@ -55,6 +67,11 @@ async def handle_telemetry_ws(request: web.Request) -> web.StreamResponse:
 
     link = state.link
 
+    # Fan-out into MetricsStore when available (M12.4).
+    from pibot.mc.routes_metrics import METRICS_STORE  # local import avoids circular dep
+
+    metrics = request.app.get(METRICS_STORE)
+
     async def _pump() -> None:
         # Forward pibotd snapshots until the upstream ends, the client closes, or cancelled.
         try:
@@ -62,6 +79,8 @@ async def handle_telemetry_ws(request: web.Request) -> web.StreamResponse:
                 if ws.closed:
                     break
                 await ws.send_json(snap)
+                if metrics is not None:
+                    metrics.write(snap, robot=state.robot)
         except (ConnectionResetError, asyncio.CancelledError):
             pass
         finally:
@@ -87,4 +106,5 @@ async def handle_telemetry_ws(request: web.Request) -> web.StreamResponse:
 def add_link_routes(app: web.Application) -> None:
     app.router.add_post("/api/connect", handle_connect)
     app.router.add_post("/api/disconnect", handle_disconnect)
+    app.router.add_post("/api/estop", handle_estop)
     app.router.add_get("/api/telemetry", handle_telemetry_ws)

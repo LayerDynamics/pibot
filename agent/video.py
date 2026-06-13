@@ -7,8 +7,9 @@ for a slow consumer. The autonomy loop and the ``/video`` WS endpoint each subsc
 consume independently — the camera device is opened exactly once.
 
 ``BrokerCamera`` wraps a subscriber queue and exposes a synchronous ``.capture()`` so the
-existing :class:`~agent.autonomy.AutonomyController` / :class:`~pibot.ml.pibot_environment.PibotEnvironment`
-interface keeps working without change after the broker refactor.
+existing :class:`~agent.autonomy.AutonomyController` /
+:class:`~pibot.ml.pibot_environment.PibotEnvironment` interface keeps working without change
+after the broker refactor.
 """
 
 from __future__ import annotations
@@ -177,7 +178,7 @@ def encode_jpeg(frame: Any, max_dim: int) -> tuple[bytes, int, int]:
         scale = max_dim / max(w, h)
         new_w = max(1, int(round(w * scale)))
         new_h = max(1, int(round(h * scale)))
-        img = img.resize((new_w, new_h), Image.LANCZOS)
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
         w, h = img.size
 
     buf = io.BytesIO()

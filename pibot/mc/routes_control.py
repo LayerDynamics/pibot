@@ -27,17 +27,13 @@ async def handle_control_ws(request: web.Request) -> web.StreamResponse:
     await ws.prepare(request)
 
     link = state.link
-    if link is None or not link.connected:
+    robot_url = link.robot_url if link is not None else None
+    if robot_url is None:
         await ws.send_json({"error": "not connected"})
         await ws.close()
         return ws
 
-    robot_url = link.robot_url
-    robot_token = link.robot_token
-    if robot_url is None:
-        await ws.send_json({"error": "no robot url"})
-        await ws.close()
-        return ws
+    robot_token = link.robot_token if link is not None else None
 
     # Build a WS URL for pibotd /control.
     ws_url = robot_url.replace("http://", "ws://").replace("https://", "wss://") + "/control"
@@ -84,7 +80,7 @@ async def handle_control_ws(request: web.Request) -> web.StreamResponse:
                             await ws.send_json(reply)
                         else:
                             await ws.send_json({"error": "no reply"})
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         await ws.send_json({"error": "robot timeout"})
 
                 elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.CLOSING, web.WSMsgType.ERROR):

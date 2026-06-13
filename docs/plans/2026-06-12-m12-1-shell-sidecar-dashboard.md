@@ -16,7 +16,7 @@
 | **Depends on** | SPEC-1/2 (shipped) — `pibotd`, `AgentClient`, `config`, `inventory` |
 | **Branch** | `m12-1-shell-sidecar-dashboard` |
 | **Date** | 2026-06-12 |
-| **Status** | Not started |
+| **Status** | ✅ Shipped + committed (T12.1.1–T12.1.7; gate-green). Host-marked (deselected in CI): `tests/integration/test_mc_live.py`, `tests/test_mc_packaging.py`. |
 
 ## In scope
 The `app/` monorepo scaffold; the Tauri shell + sidecar supervisor + per-launch token; the

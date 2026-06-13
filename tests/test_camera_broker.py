@@ -83,8 +83,10 @@ def test_camera_opened_only_once() -> None:
         cam.open()  # opened by the caller — exactly once
 
         broker = CameraBroker(cam, fps=100)
-        q1 = broker.subscribe()
-        q2 = broker.subscribe()
+        # Two subscribers — this test asserts only that the camera opens once; fan-out
+        # receipt is covered by test_fanout_two_subscribers_each_receive_every_frame.
+        broker.subscribe()
+        broker.subscribe()
 
         await broker.start()
         for _ in range(50):

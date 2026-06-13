@@ -14,7 +14,6 @@ import contextlib
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-
 SendFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 

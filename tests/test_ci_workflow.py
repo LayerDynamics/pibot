@@ -55,3 +55,21 @@ def test_ci_keeps_hardware_tests_manual_only() -> None:
 def test_hardware_marker_is_registered() -> None:
     pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text("utf-8")
     assert "hardware:" in pyproject  # the marker is declared so -m 'not hardware' is valid
+
+
+def test_e2e_suite_is_host_marked() -> None:
+    """T12.5.7 — the macOS E2E suite is documented as host-marked (not automated in CI).
+
+    Per CLAUDE.md's E2E definition, a real E2E test exercises the full stack with no
+    mocked components — that requires a built .app and a hardware stand.  CI cannot
+    provide those, so the suite is explicitly host-marked.  This test verifies the
+    README exists and documents that status.
+    """
+    readme = Path(__file__).resolve().parent.parent / "app" / "e2e" / "README.md"
+    assert readme.is_file(), "app/e2e/README.md must exist (T12.5.7)"
+    text = readme.read_text(encoding="utf-8")
+    assert "host-marked" in text.lower(), "E2E README must state host-marked status"
+    assert "manual" in text.lower(), "E2E README must state tests are manual"
+    # Verify all 5 flows are documented.
+    for flow in ("connect", "teleop", "estop", "autonomy", "provisioning"):
+        assert flow in text, f"E2E README missing flow: {flow}"

@@ -18,8 +18,8 @@ import pytest
 from aiohttp import WSMsgType, web
 from aiohttp.test_utils import TestClient, TestServer
 
-from agent.app import AgentState, STATE, build_app
-from agent.video import CameraBroker, Frame
+from agent.app import build_app
+from agent.video import CameraBroker
 from pibot.transport.responder import ResponderTransport
 
 
@@ -158,9 +158,7 @@ def test_video_downscales_large_frame() -> None:
             hdr = json.loads(hdr_msg.data)
             jpeg_msg = await asyncio.wait_for(ws.receive(), timeout=3.0)
 
-            assert max(hdr["w"], hdr["h"]) <= 640, (
-                f"frame not downscaled: {hdr['w']}x{hdr['h']}"
-            )
+            assert max(hdr["w"], hdr["h"]) <= 640, f"frame not downscaled: {hdr['w']}x{hdr['h']}"
 
             from PIL import Image
 

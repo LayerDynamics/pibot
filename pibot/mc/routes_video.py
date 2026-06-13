@@ -28,7 +28,7 @@ async def handle_video_ws(request: web.Request) -> web.StreamResponse:
             while not ws.closed:
                 try:
                     hdr, jpeg = await asyncio.wait_for(q.get(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
                 await ws.send_str(hdr)
                 await ws.send_bytes(jpeg)
