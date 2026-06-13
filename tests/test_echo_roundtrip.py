@@ -71,8 +71,10 @@ def test_roundtrip_over_tcp() -> None:
         t = TcpTransport("127.0.0.1", srv.port)
         t.open()
         t.send(_ping(7))
-        ack = decode(t.recv(1.0), "ascii")
-        tlm = decode(t.recv(1.0), "ascii")
+        # Generous recv timeout: the PTY round-trip + responder thread can take >1 s to
+        # schedule on a loaded CI runner (it timed out -> recv None -> decode crash there).
+        ack = decode(t.recv(5.0), "ascii")
+        tlm = decode(t.recv(5.0), "ascii")
         assert ack.type is MessageType.ACK and ack.seq == 7
         assert tlm.type is MessageType.TELEMETRY  # ping is answered with telemetry
         # a drive command just gets an ACK
@@ -126,8 +128,10 @@ def test_roundtrip_over_pty_serial() -> None:
         t = SerialTransport(slave_name)
         t.open()
         t.send(_ping(3))
-        ack = decode(t.recv(1.0), "ascii")
-        tlm = decode(t.recv(1.0), "ascii")
+        # Generous recv timeout: the PTY round-trip + responder thread can take >1 s to
+        # schedule on a loaded CI runner (it timed out -> recv None -> decode crash there).
+        ack = decode(t.recv(5.0), "ascii")
+        tlm = decode(t.recv(5.0), "ascii")
         assert ack == Message(MessageType.ACK, 3)
         assert tlm.type is MessageType.TELEMETRY
         t.close()

@@ -49,7 +49,11 @@ jobs:
           arduino-cli core update-index
           arduino-cli core install esp32:esp32
       - name: Compile the AVR sketch
-        run: arduino-cli compile --fqbn arduino:avr:uno firmware/pibot_arduino
+        # The wired-Arduino sketch needs the Servo library (not bundled with the AVR core in
+        # current arduino-cli); install it before compiling.
+        run: |
+          arduino-cli lib install Servo
+          arduino-cli compile --fqbn arduino:avr:uno firmware/pibot_arduino
       - name: Compile the ESP32 controller + TCP bridge
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 firmware/pibot_esp32
