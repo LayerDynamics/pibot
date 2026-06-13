@@ -87,6 +87,18 @@ jobs:
           pnpm lint
           pnpm typecheck
           pnpm test
+      - name: Provide a placeholder sidecar (externalBin existence check)
+        # The Rust gate runs cargo fmt/clippy/test to validate the app's Rust code — it does
+        # NOT run `tauri build`/bundle. tauri-build (build.rs) only checks that the externalBin
+        # file *exists* (binaries/ is gitignored), so the real PyInstaller sidecar
+        # (app/scripts/build-sidecar.sh, exercised by tests/test_mc_packaging.py) is not needed
+        # here. Provide an empty executable named for the host triple so the check passes.
+        run: |
+          triple="$(rustc -vV | sed -n 's/^host: //p')"
+          mkdir -p app/src-tauri/binaries
+          install -m 0755 /dev/null "app/src-tauri/binaries/pibot-mc-host-${triple}"
+          echo "placeholder externalBin: pibot-mc-host-${triple}"
+
       - name: Rust gate (fmt + clippy + test)
         # Uses the committed Cargo.lock (time pinned to 0.3.47) so the cookie/time
         # build break can't recur in CI.
