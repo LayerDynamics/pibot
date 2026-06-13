@@ -90,7 +90,14 @@ async def auth_middleware(request: web.Request, handler: _Handler) -> web.Stream
         raise web.HTTPUnauthorized(
             text="missing or invalid bearer token", headers=_cors_headers(request)
         )
-    response = await handler(request)
+    try:
+        response = await handler(request)
+    except web.HTTPException as exc:
+        # Handlers signal failure by raising (e.g. /api/connect to an unreachable robot ->
+        # 404/502, /api/estop when not connected -> 503). Those error responses need CORS
+        # headers too, else the browser masks the real 4xx/5xx as an opaque CORS error.
+        exc.headers.update(_cors_headers(request))
+        raise
     # Skip already-sent responses (WebSocket upgrades); WS handshakes aren't CORS-gated.
     if not response.prepared:
         response.headers.update(_cors_headers(request))

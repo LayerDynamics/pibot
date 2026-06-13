@@ -150,6 +150,35 @@ def test_auth_failure_still_carries_cors_headers() -> None:
     _run(body())
 
 
+def test_handler_raised_error_carries_cors_headers() -> None:
+    """An error raised from *inside* a route handler must carry CORS headers too.
+
+    Regression: the middleware added CORS on the auth + happy paths but not when a handler
+    raised (e.g. POST /api/connect to an unknown robot -> 404, or an unreachable one -> 502),
+    so the webview saw connect/estop failures as opaque CORS errors masking the real status.
+    """
+    from pibot.errors import InventoryError
+    from pibot.mc.robot_link import RobotLink
+
+    def bad_resolver(robot: str) -> tuple[str, str | None]:
+        raise InventoryError(f"unknown robot: {robot}")
+
+    async def body() -> None:
+        state = McState(token="secret")
+        state.link = RobotLink(resolver=bad_resolver)
+        app = create_mc_app(state=state)
+        async with TestClient(TestServer(app)) as c:
+            r = await c.post(
+                "/api/connect",
+                headers={"Authorization": "Bearer secret", "Origin": "tauri://localhost"},
+                json={"robot": "nope"},
+            )
+            assert r.status == 404
+            assert r.headers["Access-Control-Allow-Origin"] == "tauri://localhost"
+
+    _run(body())
+
+
 # ---- real loopback bind via serve() --------------------------------------
 
 
