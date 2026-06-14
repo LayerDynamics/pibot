@@ -14,6 +14,7 @@ mirror used for no-hardware tests is `pibot/control/echo.py`.
 | **`pibot_esp32/`** | **ESP32** (WROOM/S3/C3) | **PRIMARY — Wi-Fi controller**: drives motors/servos AND serves the protocol on TCP :3333. Verified: compiles to 70 % flash. |
 | `pibot_arduino/` | Arduino Uno/Nano/Mega (AVR) | Wired alternative — same firmware over USB serial (5 V, no Wi-Fi). Verified: 29 % flash on an Uno. |
 | `esp32_tcp_bridge/` | ESP32 | Only if you already have an AVR motor controller: dumb Wi-Fi↔serial bridge to it. |
+| `pibot_arm_stm32/` | STM32F103 (Creality 4.2.2 / v1.1.x) | **Robot-arm controller**: per-joint stepper control (AccelStepper) — position/velocity, endstop homing + soft limits, e-stop latch, watchdog→hold. Verified: compiles to 7 % flash. Flash via SWD — see [`pibot_arm_stm32/swd/README.md`](pibot_arm_stm32/swd/README.md). |
 
 The default robot is **an ESP32 + a dual H-bridge motor driver** — fully wireless.
 
@@ -46,6 +47,11 @@ pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --port /dev/t
 
 # AVR alternative
 pibot firmware build firmware/pibot_arduino --fqbn arduino:avr:uno
+
+# Robot-arm controller (STM32F103 / Creality 4.2.2) — no native USB, flash via SWD
+arduino-cli compile --fqbn STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103RETX \
+  --export-binaries firmware/pibot_arm_stm32
+# then flash the built .bin from a Raspberry Pi 5 — see pibot_arm_stm32/swd/README.md
 ```
 
 Once flashed and on Wi-Fi, the ESP32 prints its IP; the Pi connects with
