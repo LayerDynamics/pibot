@@ -48,13 +48,17 @@ pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --port /dev/t
 # AVR alternative
 pibot firmware build firmware/pibot_arduino --fqbn arduino:avr:uno
 
-# Robot-arm controller (STM32F103 / Creality 4.2.2) — no native USB. Two flash routes:
-#   SWD  (build at 0x08000000 — the default below; flash from a Pi 5):
+# Robot-arm controller (STM32F103 / Creality 4.2.2) — no native USB. Two flash routes.
+# NOTE: -u _printf_float is REQUIRED — newlib-nano omits float printf, so without it the
+# joint-angle telemetry (%g) comes out empty. See pibot_arm_stm32/sd/README.md.
+#   SWD  (build at 0x08000000; flash from a Pi 5):
 arduino-cli compile --fqbn STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103RETX \
-  --export-binaries firmware/pibot_arm_stm32                       # -> pibotarm.bin (SWD)
+  --build-property "build.flags.ldspecs=--specs=nano.specs -u _printf_float" \
+  --clean --export-binaries firmware/pibot_arm_stm32               # -> pibotarm.bin (SWD)
 #   SD card (build at the 0x7000 bootloader offset — the 0x08000000 build won't boot via SD):
 arduino-cli compile --fqbn STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103RETX \
   --build-property build.flash_offset=0x7000 \
+  --build-property "build.flags.ldspecs=--specs=nano.specs -u _printf_float" \
   --clean --export-binaries firmware/pibot_arm_stm32               # -> pibotarm-sd.bin (SD)
 # See pibot_arm_stm32/sd/README.md (SD) or pibot_arm_stm32/swd/README.md (SWD).
 ```

@@ -23,10 +23,16 @@ the runtime `VECT_TAB_OFFSET`):
 arduino-cli compile \
   --fqbn "STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103RETX" \
   --build-property "build.flash_offset=0x7000" \
+  --build-property "build.flags.ldspecs=--specs=nano.specs -u _printf_float" \
   --clean --export-binaries firmware/pibot_arm_stm32
 cp firmware/pibot_arm_stm32/build/STMicroelectronics.stm32.GenF1/pibot_arm_stm32.ino.bin \
    firmware/pibot_arm_stm32/pibotarm-sd.bin
 ```
+
+> **Why the `-u _printf_float`:** the STM32 core links newlib-nano by default, which **omits
+> float `printf` support** — so `%g`/`%f` emit *nothing* and the joint-angle telemetry comes out
+> empty (`<SEQ,joints,*CC`). `-u _printf_float` force-links it (+~5 KB). Without this flag the
+> board runs fine but reports no angles. (`atof` on the command path is unaffected.)
 
 Sanity-check the offset took — the reset vector (bytes 4–7, little-endian) must be `>= 0x08007000`:
 
