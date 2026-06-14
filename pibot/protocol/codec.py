@@ -33,6 +33,15 @@ COMMAND_ARGS: dict[str, list[str]] = {
     "estop": [],
     "ping": [],
     "set": ["param", "value"],
+    # Robot-arm joint control — mirrored in firmware/pibot_arm_stm32 (docs/plans/
+    # 2026-06-13-pibot-arm-control.md). `id` selects the joint; the value is degrees (jpos),
+    # degrees/sec (jvel), or a flag (enable).
+    "jpos": ["id", "deg"],
+    "jmove": ["id", "deg", "dps"],  # move to angle at a host-set speed (deg/sec)
+    "jvel": ["id", "dps"],
+    "jstop": ["id"],
+    "home": ["id"],
+    "enable": ["on"],
 }
 
 TELEMETRY_FIELDS: dict[str, list[str]] = {
