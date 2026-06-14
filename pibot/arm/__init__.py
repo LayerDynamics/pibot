@@ -5,6 +5,14 @@ The arm's joints are split across one or more microcontroller boards, each runni
 joint commands to the right board and aggregates telemetry; kinematics/IK layer above it.
 """
 
+from pibot.arm.kinematics import DirectSolver, JointSolver, NamedPoseSolver
 from pibot.arm.manager import ArmManager, JointRef, linear_joint_map
 
-__all__ = ["ArmManager", "JointRef", "linear_joint_map"]
+__all__ = [
+    "ArmManager",
+    "DirectSolver",
+    "JointRef",
+    "JointSolver",
+    "NamedPoseSolver",
+    "linear_joint_map",
+]
