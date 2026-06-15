@@ -36,6 +36,7 @@ class MotorSpec:
     full_steps_per_rev: int = 200  # 200 = 1.8deg, 400 = 0.9deg
     rotor_inertia_kgm2: float = 0.0  # optional, for the inertia-match note
     max_rpm: float = 1000.0  # practical top speed before the torque-speed cliff
+    nema_size: int = 17  # 11/14/17/23/34 — sets the standard mounting pattern (CAD)
 
 
 @dataclass
@@ -47,6 +48,21 @@ class GearOption:
     efficiency: float  # belt ~0.9, planetary ~0.7-0.8, worm low
     kind: str = "planetary"
     backlash_deg: float = 0.0
+    motor_pulley_teeth: int = 20  # GT2 motor pulley (belt kind only) — for the pulley CAD diameters
+
+
+@dataclass
+class MaterialSpec:
+    """Link material for the cross-section calc: allowable stress = yield / safety."""
+
+    name: str = "Al-6061"
+    yield_mpa: float = 276.0  # 6061-T6 ~276; PLA ~50; PETG ~50; steel ~250+
+    modulus_gpa: float = 69.0  # 6061 ~69; PLA ~3.5 (for the deflection note)
+    safety: float = 2.0  # design factor on yield -> allowable stress
+
+    @property
+    def allowable_stress_pa(self) -> float:
+        return self.yield_mpa * 1e6 / self.safety
 
 
 @dataclass
@@ -97,6 +113,13 @@ class ArmSpec:
     onboard_driver_limit_a: float = 2.0  # NEMA17 fits; above this -> external TB6600/DM542
     accelstepper_ceiling_sps: float = 12000.0  # polled-stepping budget on the F103 (bench-confirm)
     driver_current_fraction: float = 0.8  # set driver to this x rated phase current
+    # link structural sizing (the CAD cross-section):
+    material: MaterialSpec = field(default_factory=MaterialSpec)
+    link_section: str = (
+        "round_tube"  # "round_tube" (solve OD for link_wall_mm) | "rect" (solve height for width)
+    )
+    link_wall_mm: float = 2.0  # tube wall thickness, or the rect-bar width
+    link_struct_sf: float = 2.0  # structural safety factor applied to the bending moment
 
 
 # ---- [A] gear ratio & angular resolution -----------------------------------------------------
@@ -222,6 +245,63 @@ def psu_current(rated_sum_a: float, transient_factor: float = 1.2, margin: float
     return rated_sum_a * transient_factor * margin
 
 
+# ---- [E] physical dimensions (what to model in CAD) ------------------------------------------
+
+# Standard NEMA stepper frame dimensions (mm): body face, bolt-circle (square hole spacing),
+# pilot-boss diameter, shaft diameter. (NEMA ICS 16 / vendor datasheets.)
+_NEMA_FRAMES: dict[int, tuple[float, float, float, float]] = {
+    11: (28.2, 23.0, 22.0, 5.0),
+    14: (35.2, 26.0, 22.0, 5.0),
+    17: (42.3, 31.0, 22.0, 5.0),
+    23: (56.4, 47.14, 38.1, 6.35),
+    34: (86.0, 69.6, 73.0, 14.0),
+}
+
+
+def nema_frame_dims(nema_size: int) -> tuple[float, float, float, float]:
+    """(body_mm, bolt_circle_mm, pilot_mm, shaft_mm) for a NEMA frame; nearest known if unlisted."""
+    if nema_size in _NEMA_FRAMES:
+        return _NEMA_FRAMES[nema_size]
+    nearest = min(_NEMA_FRAMES, key=lambda n: abs(n - nema_size))
+    return _NEMA_FRAMES[nearest]
+
+
+def gt2_pulley_pd_mm(teeth: int) -> float:
+    """Pitch diameter of a GT2 (2 mm pitch) pulley: ``teeth * 2 / pi``."""
+    return teeth * 2.0 / math.pi
+
+
+def required_tube_od_mm(moment_nm: float, wall_mm: float, allowable_stress_pa: float) -> float:
+    """Minimum round-tube OD (mm) keeping bending stress within allowable, for a given wall.
+    Tube section modulus ``Z = pi(OD^4 - ID^4)/(32*OD)``; solve ``Z >= M/sigma`` by bisection."""
+    if moment_nm <= 0:
+        return 2.0 * wall_mm
+    z_req = moment_nm / allowable_stress_pa  # m^3
+    wall = wall_mm / 1000.0
+
+    def z_of(od_m: float) -> float:
+        id_m = max(od_m - 2.0 * wall, 0.0)
+        return math.pi * (od_m**4 - id_m**4) / (32.0 * od_m)
+
+    lo, hi = 2.0 * wall + 1e-4, 0.5  # OD search range in metres
+    for _ in range(100):
+        mid = (lo + hi) / 2.0
+        if z_of(mid) < z_req:
+            lo = mid
+        else:
+            hi = mid
+    return hi * 1000.0
+
+
+def required_rect_height_mm(moment_nm: float, width_mm: float, allowable_stress_pa: float) -> float:
+    """Minimum solid rectangular-bar height (mm) for a given width: ``Z = b*h^2/6`` ->
+    ``h = sqrt(6*M / (sigma*b))``."""
+    if moment_nm <= 0:
+        return width_mm
+    b = width_mm / 1000.0
+    return math.sqrt(6.0 * moment_nm / (allowable_stress_pa * b)) * 1000.0
+
+
 # ---- results ---------------------------------------------------------------------------------
 
 
@@ -252,6 +332,12 @@ class JointSizing:
     motor_rpm: float
     driver_current_a: float  # set driver current (= fraction * rated)
     needs_external_driver: bool
+    # physical dimensions to model in CAD:
+    link_length_mm: float
+    bending_moment_nm: float  # gravity + dynamic moment the link carries at its proximal joint
+    link_section_desc: str  # load-sized cross-section (OD/wall or width/height)
+    motor_mount_desc: str  # the selected NEMA frame's mounting pattern
+    reduction_desc: str  # pulley pitch diameters (belt) or gearbox frame
     adequate: bool
     notes: list[str] = field(default_factory=list)
 
@@ -386,6 +472,35 @@ def size_joint(arm: ArmSpec, joint_index: int) -> JointSizing:
     holding_budget = motor.holding_torque_nm * jc.usable_fraction
     margin = holding_budget / t_motor_req if t_motor_req > 0 else math.inf
 
+    # --- physical dimensions to model in CAD ---
+    # The link carries the gravity moment of everything distal (worst case = extended horizontally)
+    # regardless of the joint's axis, plus the dynamic term -> size its cross-section to that.
+    g_moment = G_ACCEL * sum(m * d for m, d in distal)
+    bending_moment = g_moment + t_dyn
+    sigma = arm.material.allowable_stress_pa
+    if arm.link_section == "rect":
+        h = required_rect_height_mm(bending_moment * arm.link_struct_sf, arm.link_wall_mm, sigma)
+        section_desc = f"{arm.link_wall_mm:.0f}×{h:.0f} mm {arm.material.name} bar"
+    else:
+        od = required_tube_od_mm(bending_moment * arm.link_struct_sf, arm.link_wall_mm, sigma)
+        section_desc = f"Ø{od:.0f}×{arm.link_wall_mm:.1f} mm {arm.material.name} tube"
+    body, bolt_circle, _pilot, shaft = nema_frame_dims(motor.nema_size)
+    mount_desc = (
+        f"NEMA{motor.nema_size}: {body:.1f} mm body, {bolt_circle:.1f} mm bolt circle, "
+        f"Ø{shaft:.2f} mm shaft"
+    )
+    if gear.kind == "belt":
+        driven_teeth = round(gear.motor_pulley_teeth * gear.ratio)
+        reduction_desc = (
+            f"GT2 {gear.motor_pulley_teeth}T->{driven_teeth}T pulleys "
+            f"(PD {gt2_pulley_pd_mm(gear.motor_pulley_teeth):.1f}->"
+            f"{gt2_pulley_pd_mm(driven_teeth):.1f} mm)"
+        )
+    else:
+        reduction_desc = (
+            f"{gear.ratio:.0f}:1 {gear.kind} gearbox (COTS, NEMA{motor.nema_size} input)"
+        )
+
     return JointSizing(
         name=jc.name,
         axis=jc.axis,
@@ -415,6 +530,11 @@ def size_joint(arm: ArmSpec, joint_index: int) -> JointSizing:
         needs_external_driver=needs_external_driver(
             motor.rated_current_a, arm.onboard_driver_limit_a
         ),
+        link_length_mm=jc.link_length_m * 1000.0,
+        bending_moment_nm=bending_moment,
+        link_section_desc=section_desc,
+        motor_mount_desc=mount_desc,
+        reduction_desc=reduction_desc,
         adequate=adequate,
         notes=notes,
     )
@@ -446,10 +566,14 @@ def load_arm_toml(path: str) -> ArmSpec:
     with open(path, "rb") as fh:
         data = tomllib.load(fh)
     arm_cfg = dict(data.get("arm", {}))
+    material_cfg = arm_cfg.pop("material", None) or data.get("material")
+    material = MaterialSpec(**material_cfg) if material_cfg else MaterialSpec()
     motors = [MotorSpec(**m) for m in data["motor"]]
     gears = [GearOption(**g) for g in data["gear"]]
     joints = [JointConfig(**j) for j in data["joint"]]
-    return ArmSpec(joints=joints, motor_catalog=motors, gear_catalog=gears, **arm_cfg)
+    return ArmSpec(
+        joints=joints, motor_catalog=motors, gear_catalog=gears, material=material, **arm_cfg
+    )
 
 
 def jcfg_row(jc: JointConfig, js: JointSizing) -> str:
@@ -515,6 +639,12 @@ def format_report(arm: ArmSpec, sizing: ArmSizing) -> str:
             f"  driver: set {js.driver_current_a:.2f} A"
             + ("  ** external driver (>onboard limit) **" if js.needs_external_driver else "")
         )
+        lines.append(
+            f"  build : link {js.link_length_mm:.0f} mm, {js.link_section_desc} "
+            f"(carries {js.bending_moment_nm:.1f} N·m)"
+        )
+        lines.append(f"          mount {js.motor_mount_desc}")
+        lines.append(f"          reduction {js.reduction_desc}")
         for note in js.notes:
             lines.append(f"  ! {note}")
         lines.append("")

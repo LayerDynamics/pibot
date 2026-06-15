@@ -144,6 +144,21 @@ PSU:  I_supply ≳ Σ(rated_phase_current) × 1.2  + 30–50% margin  (transient
 
 ---
 
+## [E] Physical dimensions to model in CAD (derived from the same loads)
+
+The calculations also give the **dimensions to draw**, so the output is buildable, not just a parts list:
+
+- **Link cross-section sized to the bending moment** it carries (gravity moment of everything distal,
+  worst case = extended horizontal, + the dynamic term). Round tube of wall `t`: solve
+  `Z = π(OD⁴−ID⁴)/(32·OD) ≥ M·SF/σ_allow` for **OD**. Solid rectangular bar of width `b`:
+  `h = √(6·M·SF/(σ·b))`. `σ_allow = yield/safety` (Al-6061 ~276 MPa; PLA/PETG ~50 MPa — configurable).
+- **Motor mounting pattern** from the chosen NEMA frame: NEMA17 = 42.3 mm body / 31 mm bolt circle /
+  Ø5 mm shaft; NEMA23 = 56.4 / 47.14 / Ø6.35 — the bracket must match it.
+- **Reduction geometry:** GT2 belt pulley pitch diameters `PD = teeth·2/π` (motor + driven), or the
+  COTS gearbox frame for planetary/cycloidal.
+
+---
+
 ## The calculator — `pibot/arm/sizing.py` (the buildable deliverable)
 
 Pure-stdlib (respects the `[ml]` boundary — no numpy; basic arithmetic only). Importable API +
@@ -171,13 +186,14 @@ ArmSpec     : links[], payload_kg, reach_m, supply_voltage_V,
    `T_hold·u ≥ T_motor_req` AND `motor_rpm = speed·G/6` is on the torque–speed curve AND
    `step_rate = speed·steps_per_deg ≤ ceiling`. Pick the **smallest G** that passes (max speed,
    min resolution waste); escalate NEMA17→NEMA23 if none pass.
-5. Emit: `steps_per_deg`, `resolution_deg`, `fullstep_res_deg`, `end_effector_arc_mm`,
-   `max_joint_speed`, `max_sps`, `accel_sps2`, `driver_current_A`, `needs_external_driver`,
-   margin, and the **`JCFG[]` row** (`steps_per_deg, max_sps, accel` + the mechanical
-   `min/max_deg, home_pos_deg` passed through from `JointInput`).
+5. Emit the sizing: `steps_per_deg`, `resolution_deg`, `fullstep_res_deg`, `end_effector_arc_mm`,
+   `max_joint_speed`, `max_sps`, `accel_sps2`, `driver_current_A`, `needs_external_driver`, margin,
+   and the **`JCFG[]` row** (`steps_per_deg, max_sps, accel` + mechanical `min/max_deg, home_pos_deg`).
+6. Emit the **CAD build dimensions** (§[E]): link length + load-sized cross-section, the NEMA mount
+   pattern, and the reduction pulley/gearbox geometry — so the output is buildable, not just selected.
 
-**Arm-level output:** per-joint table + total `psu_current_A` + which joints need external drivers
-+ a copy-pasteable `JCFG[]` block for `firmware/pibot_arm_stm32/pibot_arm_stm32.ino`.
+**Arm-level output:** per-joint sizing **+ build dimensions** + total `psu_current_A` + which joints
+need external drivers + a copy-pasteable `JCFG[]` block for `firmware/pibot_arm_stm32/pibot_arm_stm32.ino`.
 
 ## Phased build order
 

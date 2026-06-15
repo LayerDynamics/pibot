@@ -229,3 +229,75 @@ def test_format_report_mentions_psu_and_jcfg() -> None:
 
 def test_main_returns_zero_for_feasible_sample() -> None:
     assert s.main([str(SAMPLE)]) == 0
+
+
+# ---- [E] physical dimensions (CAD) -----------------------------------------------------------
+
+
+def test_nema_frame_dims() -> None:
+    body, bolt, _pilot, shaft = s.nema_frame_dims(17)
+    assert (
+        body == pytest.approx(42.3) and bolt == pytest.approx(31.0) and shaft == pytest.approx(5.0)
+    )
+    assert s.nema_frame_dims(23)[3] == pytest.approx(6.35)  # NEMA23 shaft
+    # an unlisted size snaps to the nearest known frame
+    assert s.nema_frame_dims(18) == s.nema_frame_dims(17)
+
+
+def test_gt2_pulley_pitch_diameter() -> None:
+    # GT2 (2 mm pitch): PD = teeth * 2 / pi -> 20T ~= 12.73 mm.
+    assert s.gt2_pulley_pd_mm(20) == pytest.approx(12.732, abs=1e-3)
+
+
+def test_required_tube_od_grows_with_moment() -> None:
+    sigma = s.MaterialSpec().allowable_stress_pa  # Al-6061, 276/2 MPa
+    od_small = s.required_tube_od_mm(5.0, 2.0, sigma)
+    od_big = s.required_tube_od_mm(50.0, 2.0, sigma)
+    assert od_big > od_small > 4.0  # bigger moment -> bigger OD; OD exceeds 2*wall
+    # the section actually meets the stress requirement (Z >= M/sigma)
+    od_m = od_big / 1000.0
+    id_m = od_m - 2 * (2.0 / 1000.0)
+    z = math.pi * (od_m**4 - id_m**4) / (32 * od_m)
+    assert z >= 50.0 / sigma * 0.99
+
+
+def test_required_rect_height_closed_form() -> None:
+    sigma = s.MaterialSpec().allowable_stress_pa
+    h = s.required_rect_height_mm(10.0, 20.0, sigma)
+    # Z = b*h^2/6 must cover M/sigma
+    z = (20.0 / 1000.0) * (h / 1000.0) ** 2 / 6.0
+    assert z == pytest.approx(10.0 / sigma, rel=1e-6)
+
+
+def test_material_allowable_stress() -> None:
+    assert s.MaterialSpec(yield_mpa=276.0, safety=2.0).allowable_stress_pa == pytest.approx(138e6)
+
+
+def test_size_joint_emits_cad_dimensions() -> None:
+    arm = s.load_arm_toml(str(SAMPLE))
+    js = s.size_joint(arm, 1)  # shoulder
+    assert js.link_length_mm == pytest.approx(250.0)  # 0.25 m link
+    assert js.bending_moment_nm > 0
+    assert "tube" in js.link_section_desc  # round_tube section in the sample
+    assert "NEMA23" in js.motor_mount_desc  # heavy shoulder -> NEMA23
+    assert "planetary" in js.reduction_desc  # 50:1 is a gearbox, not a belt
+
+
+def test_belt_reduction_reports_pulleys() -> None:
+    arm = s.load_arm_toml(str(SAMPLE))
+    js = s.size_joint(arm, 0)  # base uses a 10:1 belt in the sample
+    assert "GT2" in js.reduction_desc and "PD" in js.reduction_desc
+
+
+def test_zero_moment_returns_minimum_section() -> None:
+    sigma = s.MaterialSpec().allowable_stress_pa
+    assert s.required_tube_od_mm(0.0, 2.0, sigma) == pytest.approx(4.0)  # 2 * wall
+    assert s.required_rect_height_mm(0.0, 20.0, sigma) == pytest.approx(20.0)  # = width
+
+
+def test_rect_link_section_emits_bar() -> None:
+    arm = _two_joint_arm()
+    arm.link_section = "rect"
+    arm.link_wall_mm = 20.0  # rect-bar width
+    js = s.size_joint(arm, 1)
+    assert "bar" in js.link_section_desc and arm.material.name in js.link_section_desc
