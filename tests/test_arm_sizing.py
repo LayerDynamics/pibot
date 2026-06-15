@@ -301,3 +301,53 @@ def test_rect_link_section_emits_bar() -> None:
     arm.link_wall_mm = 20.0  # rect-bar width
     js = s.size_joint(arm, 1)
     assert "bar" in js.link_section_desc and arm.material.name in js.link_section_desc
+
+
+def test_stiffness_sizing_grows_with_length() -> None:
+    e_pa = 69e9
+    # I_req = F·L³/(3·E·δ) — a longer cantilever droops more, so needs a stiffer (bigger) section.
+    od_short = s.required_tube_od_for_stiffness(10.0, 0.2, e_pa, 0.2 / 200, 2.0)
+    od_long = s.required_tube_od_for_stiffness(10.0, 0.5, e_pa, 0.5 / 200, 2.0)
+    assert od_long > od_short > 4.0
+    h_short = s.required_rect_height_for_stiffness(10.0, 0.2, e_pa, 0.2 / 200, 20.0)
+    h_long = s.required_rect_height_for_stiffness(10.0, 0.5, e_pa, 0.5 / 200, 20.0)
+    assert h_long > h_short
+    # degenerate load -> minimum section
+    assert s.required_tube_od_for_stiffness(0.0, 0.3, e_pa, 0.0015, 2.0) == pytest.approx(4.0)
+    assert s.required_rect_height_for_stiffness(0.0, 0.3, e_pa, 0.0015, 20.0) == pytest.approx(20.0)
+
+
+def test_deflection_governs_for_soft_long_link() -> None:
+    # A long, lightly-loaded PLA link with a tight droop limit -> deflection, not stress, sets size.
+    motors = [s.MotorSpec("NEMA17", 0.45, 1.5, nema_size=17)]
+    gears = [s.GearOption(20, 0.8, "planetary")]
+    j0 = s.JointConfig("long", "horizontal", motor_mass_kg=0.2, link_mass_kg=0.1, link_length_m=0.6)
+    arm = s.ArmSpec(
+        joints=[j0],
+        payload_kg=0.2,
+        motor_catalog=motors,
+        gear_catalog=gears,
+        material=s.MaterialSpec(name="PLA", yield_mpa=50.0, modulus_gpa=3.5, safety=2.0),
+        link_stiffness_ratio=500.0,
+    )
+    js = s.size_joint(arm, 0)
+    assert "deflection-governed" in js.link_section_desc
+
+
+def test_stress_governs_for_short_heavy_link() -> None:
+    # A SHORT link with a heavy tip load: high bending stress but tiny droop (deflection ∝ L³),
+    # so STRESS sets the section. (A long link, like the sample shoulder, is deflection-governed.)
+    motors = [s.MotorSpec("NEMA23", 1.9, 2.8, nema_size=23)]
+    gears = [s.GearOption(50, 0.8, "planetary")]
+    j0 = s.JointConfig(
+        "stub", "horizontal", motor_mass_kg=0.3, link_mass_kg=0.3, link_length_m=0.05
+    )
+    arm = s.ArmSpec(
+        joints=[j0],
+        payload_kg=3.0,
+        motor_catalog=motors,
+        gear_catalog=gears,
+        link_stiffness_ratio=100.0,
+    )
+    js = s.size_joint(arm, 0)
+    assert "stress-governed" in js.link_section_desc

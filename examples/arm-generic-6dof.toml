@@ -11,7 +11,8 @@ driver_current_fraction = 0.8         # set each driver to 0.8 x rated phase cur
 # link cross-section (CAD): each link is sized to its bending moment in this material/section
 link_section = "round_tube"           # "round_tube" (solve OD for link_wall_mm) | "rect" (solve height)
 link_wall_mm = 2.0                     # tube wall thickness (or, for "rect", the bar width)
-link_struct_sf = 2.0                  # structural safety factor on the bending moment
+link_struct_sf = 2.0                  # structural safety factor on the bending moment (yield)
+link_stiffness_ratio = 200.0          # deflection limit: max tip droop = link_length / this
 
 [material]
 name = "Al-6061"

@@ -148,10 +148,14 @@ PSU:  I_supply ≳ Σ(rated_phase_current) × 1.2  + 30–50% margin  (transient
 
 The calculations also give the **dimensions to draw**, so the output is buildable, not just a parts list:
 
-- **Link cross-section sized to the bending moment** it carries (gravity moment of everything distal,
-  worst case = extended horizontal, + the dynamic term). Round tube of wall `t`: solve
-  `Z = π(OD⁴−ID⁴)/(32·OD) ≥ M·SF/σ_allow` for **OD**. Solid rectangular bar of width `b`:
-  `h = √(6·M·SF/(σ·b))`. `σ_allow = yield/safety` (Al-6061 ~276 MPa; PLA/PETG ~50 MPa — configurable).
+- **Link cross-section sized to BOTH stress and deflection — the larger governs.**
+  *Stress:* the bending moment it carries (gravity moment of everything distal, worst case = extended
+  horizontal, + the dynamic term). Tube of wall `t`: solve `Z = π(OD⁴−ID⁴)/(32·OD) ≥ M·SF/σ_allow`
+  for **OD**; rect bar of width `b`: `h = √(6·M·SF/(σ·b))`. `σ_allow = yield/safety` (Al-6061 ~276 MPa;
+  PLA/PETG ~50 MPa — configurable). *Deflection (droop):* cantilever tip sag `δ = F·L³/(3·E·I)` must
+  stay under `L / link_stiffness_ratio`, so `I ≥ F·L³/(3·E·δ)` sets a second OD/height; the link uses
+  whichever is bigger. **For long thin links deflection usually wins** (e.g. the sample's 250 mm
+  aluminium shoulder link is deflection-governed, not stress-governed).
 - **Motor mounting pattern** from the chosen NEMA frame: NEMA17 = 42.3 mm body / 31 mm bolt circle /
   Ø5 mm shaft; NEMA23 = 56.4 / 47.14 / Ø6.35 — the bracket must match it.
 - **Reduction geometry:** GT2 belt pulley pitch diameters `PD = teeth·2/π` (motor + driven), or the
