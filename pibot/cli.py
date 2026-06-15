@@ -407,6 +407,74 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dry_run(p_auto)  # --run is state-changing: preview the wiring without actuating
     p_auto.set_defaults(func=cmd_autonomy)
 
+    # ---- arm (stepper-arm motion) ----
+    p_arm = sub.add_parser("arm", parents=[g], help="control the stepper arm")
+    arm_sub = p_arm.add_subparsers(dest="arm_action", required=True)
+
+    a_tel = arm_sub.add_parser("telemetry", parents=[g], help="show live joint angles")
+    a_tel.add_argument("target")
+    a_tel.set_defaults(func=cmd_arm)
+
+    a_jog = arm_sub.add_parser("jog", parents=[g], help="velocity-jog a joint (deg/sec)")
+    a_jog.add_argument("target")
+    a_jog.add_argument("joint", type=int)
+    a_jog.add_argument("dps", type=float)
+    _add_dry_run(a_jog)
+    a_jog.set_defaults(func=cmd_arm)
+
+    a_move = arm_sub.add_parser("move", parents=[g], help="move a joint to an absolute angle")
+    a_move.add_argument("target")
+    a_move.add_argument("joint", type=int)
+    a_move.add_argument("deg", type=float)
+    a_move.add_argument(
+        "--speed", type=float, default=argparse.SUPPRESS, help="deg/sec (else the joint default)"
+    )
+    _add_dry_run(a_move)
+    a_move.set_defaults(func=cmd_arm)
+
+    a_mall = arm_sub.add_parser("move-all", parents=[g], help="synchronized multi-joint move")
+    a_mall.add_argument("target")
+    a_mall.add_argument("targets", help="comma-separated joint=deg, e.g. 0=90,1=-45")
+    a_mall.add_argument("--seconds", type=float, required=True, help="arrival time (s)")
+    _add_dry_run(a_mall)
+    a_mall.set_defaults(func=cmd_arm)
+
+    a_home = arm_sub.add_parser("home", parents=[g], help="home a joint (or --all)")
+    a_home.add_argument("target")
+    a_home.add_argument("joint", type=int, nargs="?", default=None)
+    a_home.add_argument(
+        "--all", action="store_true", dest="all_joints", default=False, help="home every joint"
+    )
+    _add_dry_run(a_home)
+    a_home.set_defaults(func=cmd_arm)
+
+    a_estop = arm_sub.add_parser("estop", parents=[g], help="latch the arm e-stop")
+    a_estop.add_argument("target")
+    _add_dry_run(a_estop)
+    a_estop.set_defaults(func=cmd_arm)
+
+    a_clear = arm_sub.add_parser("clear", parents=[g], help="clear the arm e-stop latch")
+    a_clear.add_argument("target")
+    _add_dry_run(a_clear)
+    a_clear.set_defaults(func=cmd_arm)
+
+    a_enable = arm_sub.add_parser("enable", parents=[g], help="energize the arm steppers")
+    a_enable.add_argument("target")
+    _add_dry_run(a_enable)
+    a_enable.set_defaults(func=cmd_arm)
+
+    a_disable = arm_sub.add_parser("disable", parents=[g], help="release the arm steppers")
+    a_disable.add_argument("target")
+    _add_dry_run(a_disable)
+    a_disable.set_defaults(func=cmd_arm)
+
+    a_pose = arm_sub.add_parser("pose", parents=[g], help="move to a named preset pose")
+    a_pose.add_argument("target")
+    a_pose.add_argument("name")
+    a_pose.add_argument("--seconds", type=float, default=2.0, help="arrival time (s)")
+    _add_dry_run(a_pose)
+    a_pose.set_defaults(func=cmd_arm)
+
     return parser
 
 
@@ -1046,3 +1114,181 @@ def cmd_autonomy(args: argparse.Namespace) -> int:
         out = getattr(args, "out", None) or "demos"
         return _run_record(cfg, inv, args.target, prompt, out)
     raise UsageError("choose an autonomy mode: --run (closed-loop), --open-loop, or --record")
+
+
+# ---- arm (stepper-arm motion) --------------------------------------------
+
+
+def _parse_targets(spec: str) -> dict[int, float]:
+    """Parse a ``joint=deg`` list (``"0=90,1=-45"``) into ``{0: 90.0, 1: -45.0}``."""
+    targets: dict[int, float] = {}
+    for pair in spec.split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        key, sep, value = pair.partition("=")
+        if not sep:
+            raise UsageError(f"bad target {pair!r}; expected joint=deg")
+        try:
+            targets[int(key)] = float(value)
+        except ValueError as exc:
+            raise UsageError(f"bad target {pair!r}: {exc}") from exc
+    if not targets:
+        raise UsageError("move-all needs at least one joint=deg target")
+    return targets
+
+
+def _print_arm_reply(label: str, reply: dict) -> None:
+    kind = reply.get("type")
+    if kind == "ack":
+        print(f"{label}: ok")
+    elif kind == "nak":
+        print(f"{label}: refused ({reply.get('reason')})")
+    else:
+        print(json.dumps(reply))
+
+
+def _print_arm_telemetry(snap: dict) -> None:
+    if not snap.get("enabled"):
+        print("no arm configured on this robot")
+        return
+    print(f"arm: {snap.get('num_joints', 0)} joint(s)")
+    positions = snap.get("positions", {})
+    for jid in sorted(positions, key=int):
+        print(f"  J{jid}: {float(positions[jid]):.1f}°")
+
+
+def _arm_dry_run(action: str, args: argparse.Namespace) -> str:
+    """Describe (and validate) the intended arm action without opening a transport."""
+    if action == "jog":
+        return f"jog joint {args.joint} at {args.dps} deg/s"
+    if action == "move":
+        speed = getattr(args, "speed", None)
+        tail = f" at {speed} deg/s" if speed is not None else " at the joint default speed"
+        return f"move joint {args.joint} to {args.deg}°{tail}"
+    if action == "move-all":
+        return f"move {_parse_targets(args.targets)} over {args.seconds}s (synchronized)"
+    if action == "home":
+        if getattr(args, "all_joints", False):
+            return "home every joint"
+        if args.joint is None:
+            raise UsageError("home needs a joint number or --all")
+        return f"home joint {args.joint}"
+    if action == "estop":
+        return "latch the arm e-stop"
+    if action == "clear":
+        return "clear the arm e-stop latch"
+    if action == "enable":
+        return "energize the steppers"
+    if action == "disable":
+        return "release the steppers"
+    if action == "pose":
+        return f"move to preset pose {args.name!r} over {args.seconds}s"
+    raise UsageError(f"unknown arm action {action!r}")
+
+
+def cmd_arm(args: argparse.Namespace) -> int:
+    """Drive the stepper arm through pibotd's safety-gated ``/arm/control`` surface."""
+    import asyncio
+
+    from agent.auth import load_token
+    from pibot.arm.kinematics import NamedPoseSolver
+    from pibot.control.client import AgentClient
+
+    cfg, inv = _context()
+    as_json = getattr(args, "json", False)
+    timeout = getattr(args, "timeout", None)
+    action = args.arm_action
+
+    if getattr(args, "dry_run", False):
+        print(f"[dry-run] arm {action} -> {args.target}: {_arm_dry_run(action, args)}")
+        return 0
+
+    async def _dispatch(client: AgentClient) -> dict:
+        if action == "telemetry":
+            return await client.arm_telemetry()
+        if action == "jog":
+            return await client.arm_jog(args.joint, args.dps)
+        if action == "move":
+            return await client.arm_move_joint(args.joint, args.deg, getattr(args, "speed", None))
+        if action == "move-all":
+            return await client.arm_move_joints(_parse_targets(args.targets), args.seconds)
+        if action == "home":
+            return await _arm_home(client, args)
+        if action == "estop":
+            return await client.arm_estop()
+        if action == "clear":
+            return await client.arm_clear_estop()
+        if action == "enable":
+            return await client.arm_enable(True)
+        if action == "disable":
+            return await client.arm_enable(False)
+        if action == "pose":
+            return await _arm_pose(client, args, NamedPoseSolver)
+        raise UsageError(f"unknown arm action {action!r}")
+
+    async def _run() -> dict:
+        client = AgentClient(
+            _agent_base_url(cfg, inv, args.target), token=load_token(cfg.agent_token_path)
+        )
+        await client.open()
+        try:
+            return await _dispatch(client)
+        finally:
+            await client.close()
+
+    async def _main() -> dict:
+        if timeout:
+            return await asyncio.wait_for(_run(), timeout)
+        return await _run()
+
+    try:
+        result = asyncio.run(_main())
+    except TimeoutError as exc:
+        raise UsageError(f"arm {action} timed out after {timeout}s") from exc
+
+    if as_json:
+        print(json.dumps(result))
+    elif action == "telemetry":
+        _print_arm_telemetry(result)
+    elif action == "home" and "joints" in result:
+        for entry in result["joints"]:
+            _print_arm_reply(f"home J{entry['joint']}", entry["reply"])
+    else:
+        _print_arm_reply(action, result)
+    return 0
+
+
+async def _arm_home(client: object, args: argparse.Namespace) -> dict:
+    """Home one joint, or every joint with ``--all`` (joint count from telemetry)."""
+    from pibot.control.client import AgentClient
+
+    assert isinstance(client, AgentClient)
+    if getattr(args, "all_joints", False):
+        snap = await client.arm_telemetry()
+        joints = list(range(int(snap.get("num_joints", 0))))
+        replies = [{"joint": j, "reply": await client.arm_home(j)} for j in joints]
+        return {"joints": replies}
+    if args.joint is None:
+        raise UsageError("home needs a joint number or --all")
+    return await client.arm_home(args.joint)
+
+
+async def _arm_pose(client: object, args: argparse.Namespace, solver_cls: type) -> dict:
+    """Resolve a named preset to joint targets client-side, then drive a synchronized move.
+
+    M-ARM-1 ships only the geometry-free ``zero`` preset (every joint -> 0°), valid for any joint
+    count; geometry-specific poses arrive with config / M-ARM-5 once real angles exist.
+    """
+    from pibot.control.client import AgentClient
+
+    assert isinstance(client, AgentClient)
+    snap = await client.arm_telemetry()
+    num_joints = int(snap.get("num_joints", 0))
+    presets = {"zero": {j: 0.0 for j in range(num_joints)}}
+    solver = solver_cls(presets)
+    try:
+        targets = solver.solve(args.name)
+    except KeyError as exc:
+        raise UsageError(str(exc).strip("\"'")) from exc
+    return await client.arm_move_joints(targets, args.seconds)

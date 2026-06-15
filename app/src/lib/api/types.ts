@@ -86,3 +86,26 @@ export interface HistoryQuery {
   to: number;
   fields?: string[];
 }
+
+/** Stepper-arm state (mirror of pibotd `GET /arm/telemetry`). `positions` and `homed` are keyed
+ * by logical joint id (as a string, per JSON); `ts` is the agent's last sample time. `homed` and
+ * `estopped` come from the host gate state, so the UI reflects real homing + latch state. */
+export interface ArmTelemetry {
+  ok: boolean;
+  enabled: boolean;
+  num_joints: number;
+  positions: Record<string, number>;
+  /** Per-joint homing flag (host-tracked; absolute moves are refused until a joint is homed). */
+  homed: Record<string, boolean>;
+  /** Whether the arm e-stop is latched (all motion refused until cleared). */
+  estopped: boolean;
+  ts: number;
+  /** Server-computed age of the cached sample in ms (null until the first sample). */
+  age_ms: number | null;
+}
+
+/** pibotd's per-frame reply to an `/api/arm/*` motion call. */
+export interface ArmReply {
+  type: "ack" | "nak";
+  reason?: string;
+}

@@ -46,10 +46,12 @@ robot.
 5. **Agent / `pibotd`** (`agent/`) — the on-Pi aiohttp daemon, run as `python -m agent`. It
    is the **sole owner** of the transport. Bearer-token auth on every route except
    `/healthz`. Endpoints: `/health`, `/telemetry` (snapshot + WS push), `/control` (WS
-   command frames → safety → ack/nak), `/estop`, `/config`, `/video`. Closed-loop autonomy
-   (`agent/autonomy.py`) and the camera broker (`agent/video.py`) run **in-process** here.
+   command frames → safety → ack/nak), `/estop`, `/config`, `/video`, `/arm/telemetry`
+   (read-only stepper-arm joint angles + per-joint homed + e-stop state), `/arm/control` (WS
+   motion frames → host arm safety gate → `ArmManager`, when an arm is configured). Closed-loop
+   autonomy (`agent/autonomy.py`) and the camera broker (`agent/video.py`) run **in-process** here.
 6. **CLI** (`pibot/cli.py`) — the host-side `pibot` entrypoint. Subcommands span discover /
-   inventory / keys / agent / teleop / monitor / firmware / flash / play / estop / deploy.
+   inventory / keys / agent / teleop / monitor / firmware / flash / play / estop / arm / deploy.
    Global flags (`--json`/`--verbose`/`--log-json`/`--timeout`) parse before *or* after the
    subcommand.
 7. **ML / Autonomy** (`pibot/ml/`) — `camera`, `dataset` (LeRobot format), `episode_logger`,
@@ -59,9 +61,9 @@ robot.
 8. **Mission Control sidecar** (`pibot/mc/`) — a **loopback-only** (127.0.0.1, never
    public) aiohttp control plane, launched as `python -m pibot.mc --port 0 --token <t>`. It
    prints `PORT=<n>` on stdout so the Rust supervisor can discover the OS-assigned port.
-   `routes_*.py` modules cover control, link, video, autonomy, metrics, sessions, episodes,
-   finetune, policy_server, ops, inventory, config, record. `robot_link.py` owns the single
-   active link and **delegates to `pibot.control.client.AgentClient`** — it never
+   `routes_*.py` modules cover control, link, video, autonomy, arm, metrics, sessions,
+   episodes, finetune, policy_server, ops, inventory, config, record. `robot_link.py` owns the
+   single active link and **delegates to `pibot.control.client.AgentClient`** — it never
    re-implements the link.
 9. **Tauri desktop app** (`app/`) — React 19 + TypeScript + Zustand + Tailwind v4 + Radix UI
    frontend (`app/src/`), Rust core (`app/src-tauri/src/`). `supervisor.rs` spawns and
@@ -134,6 +136,28 @@ project's E2E honesty rule, do not relabel a Chromium/integration test as E2E. S
 pibot firmware build firmware/pibot_esp32 --fqbn esp32:esp32:esp32
 pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --ota <esp32-ip>
 ```
+
+**Robot-arm controller (`firmware/pibot_arm_stm32`, Creality 4.2.2 / STM32F103)** — flashed via
+**SD card** (no native USB; full procedure in `firmware/pibot_arm_stm32/sd/README.md`, or `swd/` for
+the Pi-5 OpenOCD route). Two non-obvious, mandatory requirements:
+
+- **Build the SD image at the `0x7000` bootloader offset AND with float `printf` linked**, or it
+  won't boot / joint telemetry comes out empty (newlib-nano omits float printf):
+
+  ```bash
+  arduino-cli compile --fqbn STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103RETX \
+    --build-property build.flash_offset=0x7000 \
+    --build-property "build.flags.ldspecs=--specs=nano.specs -u _printf_float" \
+    --clean --export-binaries firmware/pibot_arm_stm32   # -> pibotarm-sd.bin
+  ```
+
+  The `0x7000` offset keeps the Creality bootloader intact, so SD re-flashing stays available
+  indefinitely (the `0x08000000` SWD build would clobber it).
+- **Rename the `.bin` to a UNIQUE name on EVERY flash** (`pibotarm2.bin` → `pibotarm3.bin` → …) and
+  keep exactly one `.bin` on the card. The bootloader tracks the last-flashed name and **silently
+  skips a matching name**; its `firmware.bin`→`.CUR` rename is unreliable on the 4.2.2, so the fresh
+  name is mandatory, not optional. Insert the card at power-on, wait ~15–20 s, then verify over the
+  board's USB/CH340 (USART1 @115200) — telemetry must stream real joint values.
 
 ### CI (`.github/workflows/ci.yml`)
 

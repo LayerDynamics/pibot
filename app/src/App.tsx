@@ -11,6 +11,7 @@ import ConnectBar from "./components/ConnectBar";
 import EstopButton from "./components/EstopButton";
 import { mcEndpoint } from "./lib/api/client";
 import type { McEndpoint } from "./lib/api/types";
+import Arm from "./screens/Arm";
 import Autonomy from "./screens/Autonomy";
 import Dashboard from "./screens/Dashboard";
 import Data from "./screens/Data";
@@ -20,12 +21,13 @@ import Ros from "./screens/Ros";
 import { useConnectionStore } from "./stores/connectionStore";
 import { useNotifyStore } from "./stores/notifyStore";
 
-type ScreenKey = "dashboard" | "drive" | "autonomy" | "data" | "provisioning" | "ros";
+type ScreenKey = "dashboard" | "drive" | "autonomy" | "arm" | "data" | "provisioning" | "ros";
 
 const SCREENS: Array<{ key: ScreenKey; label: string }> = [
   { key: "dashboard", label: "Dashboard" },
   { key: "drive", label: "Drive" },
   { key: "autonomy", label: "Autonomy" },
+  { key: "arm", label: "Arm" },
   { key: "data", label: "Data" },
   { key: "provisioning", label: "Provisioning" },
   { key: "ros", label: "ROS" },
@@ -120,6 +122,7 @@ export default function App() {
         {screen === "dashboard" && <Dashboard />}
         {screen === "drive" && <Drive />}
         {screen === "autonomy" && <Autonomy />}
+        {screen === "arm" && <Arm ep={ep} />}
         {screen === "data" && <Data ep={ep} />}
         {screen === "provisioning" && <Provisioning ep={ep} />}
         {screen === "ros" && <Ros />}

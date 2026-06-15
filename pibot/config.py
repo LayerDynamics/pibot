@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from pibot import tomlio
@@ -52,6 +52,18 @@ class Config:
     prompt: str = ""
     video_fps: int = 10
     video_max_dim: int = 640
+    # Stepper arm (SPEC: docs/plans/2026-06-13-pibot-arm-control.md). pibotd owns the
+    # ArmManager when arm_serial_ports is non-empty: one serial port per board, with
+    # arm_joints_per_board giving the joint count on each (parallel lists, same length).
+    arm_serial_ports: list[str] = field(default_factory=list)
+    arm_joints_per_board: list[int] = field(default_factory=list)
+    arm_baud: int = 115200
+    arm_encoding: str = "ascii"
+    # Per-logical-joint host safety limits: one ``[min_deg, max_deg, max_dps]`` triple per joint
+    # (parallel to the linearised joint map). Empty -> the agent builds permissive defaults. The
+    # count is cross-checked against the joint total at gate construction (agent/pibotd.py), not
+    # here, mirroring build_arm's serial-ports/joints-per-board length check.
+    arm_joint_limits: list[list[float]] = field(default_factory=list)
 
 
 # The three SPEC-2 behaviors (FR-9): a CLI shorthand (`--task`) -> the canonical prompt the
@@ -97,7 +109,39 @@ _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     "prompt": (str,),
     "video_fps": (int,),
     "video_max_dim": (int,),
+    "arm_baud": (int,),
+    "arm_encoding": (str,),
 }
+
+# list-valued fields -> required element type. Validated element-wise (and bool is
+# rejected for an int list the same way it is for a scalar int field).
+_LIST_FIELD_TYPES: dict[str, type] = {
+    "arm_serial_ports": str,
+    "arm_joints_per_board": int,
+}
+
+
+def _parse_joint_limits(value: object) -> list[list[float]]:
+    """Validate ``arm_joint_limits`` — a list of ``[min_deg, max_deg, max_dps]`` numeric triples.
+
+    Element-wise like the other list fields, but with its own branch because the generic machinery
+    only handles a flat list of one scalar type. Ints are coerced to float (parallel to the
+    ``(float, int)`` scalar fields); bool is rejected even though it subclasses int.
+    """
+    err = "config key 'arm_joint_limits' must be a list of [min_deg, max_deg, max_dps] numbers"
+    if not isinstance(value, list):
+        raise ConfigError(err)
+    out: list[list[float]] = []
+    for triple in value:
+        if not isinstance(triple, list) or len(triple) != 3:
+            raise ConfigError(err)
+        coerced: list[float] = []
+        for v in triple:
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ConfigError(err)
+            coerced.append(float(v))
+        out.append(coerced)
+    return out
 
 
 def config_dir() -> Path:
@@ -122,6 +166,17 @@ def load_config(path: str | Path | None = None) -> Config:
 
     cfg = Config()
     for key, value in raw.items():
+        if key == "arm_joint_limits":
+            cfg.arm_joint_limits = _parse_joint_limits(value)
+            continue
+        if key in _LIST_FIELD_TYPES:
+            elem = _LIST_FIELD_TYPES[key]
+            if not isinstance(value, list) or any(
+                isinstance(v, bool) or not isinstance(v, elem) for v in value
+            ):
+                raise ConfigError(f"config key {key!r} must be a list of {elem.__name__}")
+            setattr(cfg, key, value)
+            continue
         if key not in _FIELD_TYPES:
             raise ConfigError(f"unknown config key: {key!r}")
         types = _FIELD_TYPES[key]

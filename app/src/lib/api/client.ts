@@ -64,3 +64,25 @@ export function openTelemetry(ep: McEndpoint, onSnapshot: (s: Snapshot) => void)
   };
   return ws;
 }
+
+export function openVideo(
+  ep: McEndpoint,
+  onFrame: (headerJson: string, blob: Blob) => void,
+): WebSocket {
+  const wsUrl = ep.url.replace(/^http/, "ws") + `/api/video?token=${encodeURIComponent(ep.token)}`;
+  const ws = new WebSocket(wsUrl);
+  ws.binaryType = "blob";
+  // The sidecar sends each frame as a TEXT header followed by the BINARY JPEG
+  // (pibot/mc/routes_video.py: send_str(hdr) → send_bytes(jpeg)). Hold the header until its
+  // binary arrives, then hand the pair to the store. A stray binary with no header is ignored.
+  let pendingHeader: string | null = null;
+  ws.onmessage = (event) => {
+    if (typeof event.data === "string") {
+      pendingHeader = event.data;
+    } else if (pendingHeader !== null) {
+      onFrame(pendingHeader, event.data as Blob);
+      pendingHeader = null;
+    }
+  };
+  return ws;
+}

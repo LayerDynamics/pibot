@@ -1,0 +1,217 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { ArmTelemetry } from "../lib/api/types";
+import { useArmStore } from "./armStore";
+
+const FAKE_EP = { url: "http://localhost:9999", token: "test-token" };
+
+function jsonResponse(body: ArmTelemetry, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  } as Response;
+}
+
+beforeEach(() => {
+  useArmStore.getState().reset();
+  vi.restoreAllMocks();
+});
+
+describe("armStore.fetch", () => {
+  it("starts disabled, unloaded, with no positions", () => {
+    const s = useArmStore.getState();
+    expect(s.enabled).toBe(false);
+    expect(s.loaded).toBe(false);
+    expect(s.positions).toEqual({});
+    expect(s.error).toBeNull();
+  });
+
+  it("stores joint angles, homing, and latch state from an enabled snapshot", async () => {
+    const body: ArmTelemetry = {
+      ok: true,
+      enabled: true,
+      num_joints: 3,
+      positions: { "0": 12.5, "1": -4.25, "2": 0 },
+      homed: { "0": true, "1": false, "2": false },
+      estopped: true,
+      ts: 1000,
+      age_ms: 120,
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(body));
+
+    await useArmStore.getState().fetch(FAKE_EP);
+
+    const s = useArmStore.getState();
+    expect(s.enabled).toBe(true);
+    expect(s.numJoints).toBe(3);
+    expect(s.positions).toEqual({ "0": 12.5, "1": -4.25, "2": 0 });
+    expect(s.homed).toEqual({ "0": true, "1": false, "2": false });
+    expect(s.estopped).toBe(true);
+    expect(s.loaded).toBe(true);
+    expect(s.stale).toBe(false);
+    expect(s.error).toBeNull();
+  });
+
+  it("marks the sample stale when age_ms exceeds the threshold", async () => {
+    const body: ArmTelemetry = {
+      ok: true,
+      enabled: true,
+      num_joints: 1,
+      positions: { "0": 5 },
+      homed: { "0": true },
+      estopped: false,
+      ts: 1,
+      age_ms: 1500,
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(body));
+
+    await useArmStore.getState().fetch(FAKE_EP);
+
+    expect(useArmStore.getState().stale).toBe(true);
+  });
+
+  it("reports a disabled arm as loaded-but-not-enabled", async () => {
+    const body: ArmTelemetry = {
+      ok: true,
+      enabled: false,
+      num_joints: 0,
+      positions: {},
+      homed: {},
+      estopped: false,
+      ts: 0,
+      age_ms: null,
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(body));
+
+    await useArmStore.getState().fetch(FAKE_EP);
+
+    const s = useArmStore.getState();
+    expect(s.loaded).toBe(true);
+    expect(s.enabled).toBe(false);
+    expect(s.stale).toBe(false);
+  });
+
+  it("sets an error on a non-2xx response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => "not connected to robot",
+    } as Response);
+
+    await useArmStore.getState().fetch(FAKE_EP);
+
+    expect(useArmStore.getState().error).toContain("503");
+  });
+
+  it("sets an error when fetch throws", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
+
+    await useArmStore.getState().fetch(FAKE_EP);
+
+    expect(useArmStore.getState().error).toContain("network down");
+  });
+});
+
+function ackResponse(): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ type: "ack" }),
+    text: async () => '{"type":"ack"}',
+  } as Response;
+}
+
+function nakResponse(reason: string): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({ type: "nak", reason }),
+    text: async () => JSON.stringify({ type: "nak", reason }),
+  } as Response;
+}
+
+/** Pull the (url, init) of the last fetch call. */
+function lastCall(spy: { mock: { calls: unknown[][] } }): {
+  url: string;
+  body: unknown;
+  method?: string;
+} {
+  const calls = spy.mock.calls;
+  const [url, init] = calls[calls.length - 1] as [string, RequestInit];
+  return {
+    url,
+    method: init?.method,
+    body: init?.body ? JSON.parse(init.body as string) : undefined,
+  };
+}
+
+describe("armStore motion actions", () => {
+  it("jog POSTs joint+dps to /api/arm/jog", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().jog(FAKE_EP, 2, 30);
+    const call = lastCall(spy);
+    expect(call.url).toContain("/api/arm/jog");
+    expect(call.method).toBe("POST");
+    expect(call.body).toEqual({ joint: 2, dps: 30 });
+    expect(useArmStore.getState().error).toBeNull();
+  });
+
+  it("moveJoint omits speed by default and includes it when given", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().moveJoint(FAKE_EP, 1, 45);
+    expect(lastCall(spy).body).toEqual({ joint: 1, deg: 45 });
+    await useArmStore.getState().moveJoint(FAKE_EP, 1, 45, 20);
+    expect(lastCall(spy).body).toEqual({ joint: 1, deg: 45, speed: 20 });
+  });
+
+  it("home POSTs the joint to /api/arm/home", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().home(FAKE_EP, 0);
+    const call = lastCall(spy);
+    expect(call.url).toContain("/api/arm/home");
+    expect(call.body).toEqual({ joint: 0 });
+  });
+
+  it("estop POSTs to /api/arm/estop and latches the store", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().estop(FAKE_EP);
+    expect(lastCall(spy).url).toContain("/api/arm/estop");
+    expect(useArmStore.getState().estopped).toBe(true);
+  });
+
+  it("clearEstop POSTs to /api/arm/clear_estop and unlatches", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().estop(FAKE_EP);
+    expect(useArmStore.getState().estopped).toBe(true);
+    await useArmStore.getState().clearEstop(FAKE_EP);
+    expect(useArmStore.getState().estopped).toBe(false);
+  });
+
+  it("enable POSTs the on flag to /api/arm/enable", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().enable(FAKE_EP, false);
+    const call = lastCall(spy);
+    expect(call.url).toContain("/api/arm/enable");
+    expect(call.body).toEqual({ on: false });
+  });
+
+  it("surfaces a host-gate nak as an error and does not latch on a refused estop", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(nakResponse("joint 0 not homed"));
+    await useArmStore.getState().moveJoint(FAKE_EP, 0, 10);
+    expect(useArmStore.getState().error).toContain("not homed");
+  });
+
+  it("does not latch when the estop POST fails", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => "not connected",
+      json: async () => ({}),
+    } as Response);
+    await useArmStore.getState().estop(FAKE_EP);
+    expect(useArmStore.getState().estopped).toBe(false);
+    expect(useArmStore.getState().error).toContain("503");
+  });
+});
