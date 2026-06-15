@@ -65,12 +65,16 @@ static const uint8_t NJ = sizeof(JCFG) / sizeof(JCFG[0]);
 static const unsigned long WATCHDOG_MS = 300;
 static const unsigned long TELEMETRY_MS = 100;
 static const float HOME_BACKOFF_DEG = 5.0f;  // back off this far from the endstop after triggering
+static const float HOME_SEEK_MARGIN_DEG = 15.0f;  // homing aborts if the endstop isn't found within
+                                                  // the joint's full range + this margin (fail-closed
+                                                  // against a broken/miswired switch)
 
 // ---- Runtime state -----------------------------------------------------------------------------
 enum JMode : uint8_t { MODE_IDLE, MODE_POSITION, MODE_VELOCITY, MODE_HOME_SEEK, MODE_HOME_BACKOFF };
 static AccelStepper steppers[NJ];
 static JMode  jmode[NJ];
 static bool   jhomed[NJ];
+static long   home_start_steps[NJ];  // currentPosition() when a home seek began (travel guard)
 
 static bool estopped = false;
 static bool enabled = true;
@@ -110,8 +114,13 @@ static void stop_all() {
   }
 }
 
-static bool any_active() {
-  for (uint8_t j = 0; j < NJ; j++) if (jmode[j] != MODE_IDLE) return true;
+// True if any joint is running a HOST-commanded move (position or velocity). Homing is excluded
+// on purpose: it is a firmware-autonomous, self-bounded operation, so the host-quiet watchdog must
+// not abort a legitimate home (it would otherwise fire mid-seek). Homing is kept safe instead by its
+// own travel guard (see MODE_HOME_SEEK) plus the bounded backoff move.
+static bool any_host_motion() {
+  for (uint8_t j = 0; j < NJ; j++)
+    if (jmode[j] == MODE_POSITION || jmode[j] == MODE_VELOCITY) return true;
   return false;
 }
 
@@ -120,6 +129,7 @@ static void start_home(uint8_t j) {
   if (j >= NJ) return;
   jhomed[j] = false;
   jmode[j] = MODE_HOME_SEEK;
+  home_start_steps[j] = steppers[j].currentPosition();  // reference for the seek travel guard
   float sps = JCFG[j].home_sps * (JCFG[j].home_dir >= 0 ? 1.f : -1.f) * (JCFG[j].invert ? -1.f : 1.f);
   steppers[j].setMaxSpeed(JCFG[j].max_sps);
   steppers[j].setSpeed(sps);
@@ -150,6 +160,15 @@ static void cmd_jvel(uint8_t j, float dps) {
   jmode[j] = MODE_VELOCITY;
 }
 
+// The most a home seek may travel before we declare the endstop missing/broken and abort: the
+// joint's full configured range plus a margin. steps_per_deg and the span are both > 0.
+static long max_home_seek_steps(uint8_t j) {
+  float span = (JCFG[j].max_deg - JCFG[j].min_deg) + HOME_SEEK_MARGIN_DEG;
+  return (long)(span * JCFG[j].steps_per_deg);
+}
+
+static void send_line(const char *s);  // defined below; used by the home-fault path
+
 // ---- Per-joint stepping (called every loop) ----------------------------------------------------
 static void run_joint(uint8_t j) {
   switch (jmode[j]) {
@@ -172,17 +191,30 @@ static void run_joint(uint8_t j) {
       steppers[j].runSpeed();
       break;
     }
-    case MODE_HOME_SEEK:
+    case MODE_HOME_SEEK: {
       if (endstop_hit(j)) {
         steppers[j].setCurrentPosition(deg_to_steps(j, JCFG[j].home_pos_deg));
         float backoff = JCFG[j].home_pos_deg - JCFG[j].home_dir * HOME_BACKOFF_DEG;
         steppers[j].setMaxSpeed(JCFG[j].max_sps);
         steppers[j].moveTo(deg_to_steps(j, backoff));
         jmode[j] = MODE_HOME_BACKOFF;
-      } else {
-        steppers[j].runSpeed();
+        break;
       }
+      long traveled = steppers[j].currentPosition() - home_start_steps[j];
+      if (traveled < 0) traveled = -traveled;
+      if (traveled > max_home_seek_steps(j)) {
+        // Seeked past the joint's whole range without the endstop -> broken/miswired switch.
+        // Fail closed: stop, leave jhomed=false (position moves stay refused), and report.
+        steppers[j].setSpeed(0);
+        jmode[j] = MODE_IDLE;
+        char out[48];
+        pibot_build_nak(0, "homefault", out, sizeof(out));
+        send_line(out);
+        break;
+      }
+      steppers[j].runSpeed();
       break;
+    }
     case MODE_HOME_BACKOFF:
       steppers[j].run();
       if (steppers[j].distanceToGo() == 0) { jhomed[j] = true; jmode[j] = MODE_IDLE; }
@@ -316,8 +348,9 @@ void loop() {
   while (HOST.available() > 0) handle_byte((char)HOST.read());
 
   unsigned long now = millis();
-  if (now - last_cmd_ms > WATCHDOG_MS && any_active()) {
-    stop_all();  // host went quiet -> halt motion, stay energized (HOLD)
+  if (now - last_cmd_ms > WATCHDOG_MS && any_host_motion()) {
+    stop_all();  // host went quiet -> halt host-commanded motion (HOLD). An autonomous home is
+                 // bounded by its own travel guard, so a quiet host won't abort a legitimate home.
   }
 
   for (uint8_t j = 0; j < NJ; j++) run_joint(j);

@@ -135,6 +135,28 @@ pibot firmware build firmware/pibot_esp32 --fqbn esp32:esp32:esp32
 pibot firmware flash firmware/pibot_esp32 --fqbn esp32:esp32:esp32 --ota <esp32-ip>
 ```
 
+**Robot-arm controller (`firmware/pibot_arm_stm32`, Creality 4.2.2 / STM32F103)** — flashed via
+**SD card** (no native USB; full procedure in `firmware/pibot_arm_stm32/sd/README.md`, or `swd/` for
+the Pi-5 OpenOCD route). Two non-obvious, mandatory requirements:
+
+- **Build the SD image at the `0x7000` bootloader offset AND with float `printf` linked**, or it
+  won't boot / joint telemetry comes out empty (newlib-nano omits float printf):
+
+  ```bash
+  arduino-cli compile --fqbn STMicroelectronics:stm32:GenF1:pnum=GENERIC_F103RETX \
+    --build-property build.flash_offset=0x7000 \
+    --build-property "build.flags.ldspecs=--specs=nano.specs -u _printf_float" \
+    --clean --export-binaries firmware/pibot_arm_stm32   # -> pibotarm-sd.bin
+  ```
+
+  The `0x7000` offset keeps the Creality bootloader intact, so SD re-flashing stays available
+  indefinitely (the `0x08000000` SWD build would clobber it).
+- **Rename the `.bin` to a UNIQUE name on EVERY flash** (`pibotarm2.bin` → `pibotarm3.bin` → …) and
+  keep exactly one `.bin` on the card. The bootloader tracks the last-flashed name and **silently
+  skips a matching name**; its `firmware.bin`→`.CUR` rename is unreliable on the 4.2.2, so the fresh
+  name is mandatory, not optional. Insert the card at power-on, wait ~15–20 s, then verify over the
+  board's USB/CH340 (USART1 @115200) — telemetry must stream real joint values.
+
 ### CI (`.github/workflows/ci.yml`)
 
 Three jobs: **gate** (ubuntu, `scripts/check.sh`), **firmware** (ubuntu, arduino-cli
