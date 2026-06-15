@@ -190,6 +190,7 @@ export default function Arm({ ep }: Props) {
                       onPointerDown={() => startJog(jid, -1)}
                       onPointerUp={() => stopJog(jid)}
                       onPointerLeave={() => stopJog(jid)}
+                      onPointerCancel={() => stopJog(jid)}
                       className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
                     >
                       −
@@ -201,6 +202,7 @@ export default function Arm({ ep }: Props) {
                       onPointerDown={() => startJog(jid, 1)}
                       onPointerUp={() => stopJog(jid)}
                       onPointerLeave={() => stopJog(jid)}
+                      onPointerCancel={() => stopJog(jid)}
                       className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
                     >
                       +
