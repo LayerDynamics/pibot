@@ -339,8 +339,10 @@ async def _arm_drain(state: AgentState) -> None:
             continue
         # positions() reports only what it drained this cycle; an empty result means no frame
         # arrived in this window (not "all joints went to 0"), so keep the last known angles.
+        # Merge rather than replace: on a multi-board arm one board may not report every cycle,
+        # and overwriting would drop the silent board's joints from the cache.
         if positions:
-            state.arm_positions = positions
+            state.arm_positions.update(positions)
             state.arm_positions_ts = time.time()
 
 

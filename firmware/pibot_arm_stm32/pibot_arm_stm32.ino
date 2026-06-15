@@ -282,11 +282,14 @@ static void dispatch(const PibotCommand &cmd) {
     }
     if (cmd.argc >= 1) {
       uint8_t j = (uint8_t)cmd.args[0];
+      // Reject an out-of-range joint up front: otherwise cmd_jpos/cmd_jvel/start_home silently
+      // no-op on it but we'd still ACK, hiding a host/config error behind a false success.
+      if (j >= NJ) { pibot_build_nak(cmd.seq, "badjoint", out, sizeof(out)); send_line(out); return; }
       if (strcmp(cmd.name, "jpos") == 0 && cmd.argc >= 2) {
-        if (j < NJ && !jhomed[j]) { pibot_build_nak(cmd.seq, "nothome", out, sizeof(out)); send_line(out); return; }
+        if (!jhomed[j]) { pibot_build_nak(cmd.seq, "nothome", out, sizeof(out)); send_line(out); return; }
         cmd_jpos(j, cmd.args[1], 0.f);
       } else if (strcmp(cmd.name, "jmove") == 0 && cmd.argc >= 3) {
-        if (j < NJ && !jhomed[j]) { pibot_build_nak(cmd.seq, "nothome", out, sizeof(out)); send_line(out); return; }
+        if (!jhomed[j]) { pibot_build_nak(cmd.seq, "nothome", out, sizeof(out)); send_line(out); return; }
         cmd_jpos(j, cmd.args[1], cmd.args[2]);
       } else if (strcmp(cmd.name, "jvel") == 0 && cmd.argc >= 2) {
         cmd_jvel(j, cmd.args[1]);

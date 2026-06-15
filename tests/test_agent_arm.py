@@ -78,6 +78,22 @@ class RecordingArmTransport(FakeArmTransport):
         return [m.name for m in self.sent]
 
 
+class OnceThenSilentArmTransport(FakeArmTransport):
+    """A board that reports its joints frame exactly once, then never again — to model a board
+    that drops out of a drain cycle while another board keeps reporting."""
+
+    def __init__(self, positions: list[float]) -> None:
+        super().__init__(positions)
+        self._reported = False
+
+    def recv(self, timeout: float) -> bytes | None:
+        if timeout <= 0 or self._reported:
+            time.sleep(0.005)
+            return None
+        self._reported = True
+        return super().recv(timeout)
+
+
 def test_arm_telemetry_disabled_when_no_arm() -> None:
     async def body() -> None:
         app = build_app(transport=ResponderTransport(), trust_loopback=True)
@@ -115,6 +131,37 @@ def test_arm_telemetry_streams_positions_through_drain() -> None:
         # Cleanup stopped the drain loop and closed the board's transport.
         assert fake.close_calls >= 1
         assert not fake.is_open
+
+    _run(body())
+
+
+def test_arm_telemetry_drain_merges_per_board_and_keeps_silent_board_angles() -> None:
+    """A board that stops reporting must NOT lose its joints from the cache: the drain merges
+    per-board updates instead of overwriting the whole positions dict."""
+
+    async def body() -> None:
+        board_a = FakeArmTransport([10.0, 20.0, 30.0])  # joints 0,1,2 — reports every cycle
+        board_b = OnceThenSilentArmTransport([40.0, 50.0, 60.0])  # joints 3,4,5 — reports once
+        arm = ArmManager([board_a, board_b], linear_joint_map([3, 3]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        async with TestClient(TestServer(app)) as c:
+            # Wait until board B has been drained at least once (all six joints present).
+            for _ in range(60):
+                d = await (await c.get("/arm/telemetry")).json()
+                if {"3", "4", "5"} <= set(d["positions"]):
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("board B never reported")
+
+            # Let many more drain cycles run with board B silent, then confirm its angles persist.
+            await asyncio.sleep(0.3)
+            d = await (await c.get("/arm/telemetry")).json()
+            assert d["positions"]["3"] == 40.0
+            assert d["positions"]["4"] == 50.0
+            assert d["positions"]["5"] == 60.0
+            # Board A is still live.
+            assert d["positions"]["0"] == 10.0
 
     _run(body())
 
