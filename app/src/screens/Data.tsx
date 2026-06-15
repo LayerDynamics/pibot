@@ -30,7 +30,8 @@ export default function Data({ ep }: Props) {
       const from = to - 3600; // last hour
       fetchHistory(ep, { from, to });
     }
-  }, [tab, ep]);
+    // store actions (fetchEpisodes/fetchRuns/fetchHistory) are stable Zustand refs — safe to list.
+  }, [tab, ep, fetchEpisodes, fetchRuns, fetchHistory]);
 
   async function handleExport(fmt: "csv" | "json") {
     if (!ep) return;
