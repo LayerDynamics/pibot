@@ -1,0 +1,138 @@
+# Generic NEMA17 6-DOF stepper arm — sample input for `python -m pibot.arm.sizing`.
+# Robot-agnostic: edit every value to your arm. Sizes against the motor + gear catalogs below.
+# (SPEC: docs/plans/2026-06-15-stepper-arm-sizing-spec.md)
+
+[arm]
+payload_kg = 0.5
+supply_voltage_v = 24.0
+onboard_driver_limit_a = 2.0          # NEMA17 fits onboard; above this -> external TB6600/DM542
+accelstepper_ceiling_sps = 12000.0    # polled-stepping budget on the STM32F103 (bench-confirm, task #5)
+driver_current_fraction = 0.8         # set each driver to 0.8 x rated phase current
+
+# ---- motor catalog (the engine picks the smallest frame that works) ----
+[[motor]]
+name = "NEMA17-0.45"
+holding_torque_nm = 0.45
+rated_current_a = 1.5
+full_steps_per_rev = 200
+max_rpm = 600
+[[motor]]
+name = "NEMA23-1.9"
+holding_torque_nm = 1.9
+rated_current_a = 2.8
+full_steps_per_rev = 200
+max_rpm = 500
+
+# ---- gear catalog (output:motor ratio, de-rated efficiency) ----
+[[gear]]
+ratio = 10
+efficiency = 0.9
+kind = "belt"
+[[gear]]
+ratio = 20
+efficiency = 0.8
+kind = "planetary"
+[[gear]]
+ratio = 50
+efficiency = 0.75
+kind = "planetary"
+[[gear]]
+ratio = 80
+efficiency = 0.70
+kind = "planetary"
+
+# ---- joints, base -> tip ----
+[[joint]]
+name = "J1 base yaw"
+axis = "vertical"           # rotates about a vertical axis -> no gravity torque (inertia-sized)
+motor_mass_kg = 0.50
+link_mass_kg = 0.40
+link_length_m = 0.10
+min_deg = -170.0
+max_deg = 170.0
+home_pos_deg = -170.0
+step_pin = "PC2"
+dir_pin = "PB9"
+home_pin = "PA5"
+target_speed_deg_s = 60.0
+target_accel_deg_s2 = 400.0
+microsteps = 8                # modest microstepping on a high-reduction joint (step-rate headroom)
+
+[[joint]]
+name = "J2 shoulder"
+axis = "horizontal"
+motor_mass_kg = 0.35
+link_mass_kg = 0.40
+link_length_m = 0.25
+link_com_m = 0.13
+min_deg = -90.0
+max_deg = 90.0
+home_pos_deg = -90.0
+step_pin = "PB8"
+dir_pin = "PB7"
+home_pin = "PA6"
+target_speed_deg_s = 45.0
+target_accel_deg_s2 = 300.0
+microsteps = 8
+
+[[joint]]
+name = "J3 elbow"
+axis = "horizontal"
+motor_mass_kg = 0.30
+link_mass_kg = 0.30
+link_length_m = 0.25
+link_com_m = 0.125
+min_deg = -120.0
+max_deg = 120.0
+home_pos_deg = -120.0
+step_pin = "PB6"
+dir_pin = "PB5"
+home_pin = "PA7"
+target_speed_deg_s = 60.0
+target_accel_deg_s2 = 400.0
+microsteps = 8
+
+[[joint]]
+name = "J4 wrist pitch"
+axis = "horizontal"
+motor_mass_kg = 0.20
+link_mass_kg = 0.15
+link_length_m = 0.08
+min_deg = -120.0
+max_deg = 120.0
+home_pos_deg = -120.0
+step_pin = "PC2"
+dir_pin = "PB9"
+home_pin = "PA5"
+target_speed_deg_s = 90.0
+target_accel_deg_s2 = 600.0
+
+[[joint]]
+name = "J5 wrist roll"
+axis = "horizontal"
+motor_mass_kg = 0.15
+link_mass_kg = 0.10
+link_length_m = 0.05
+min_deg = -180.0
+max_deg = 180.0
+home_pos_deg = -180.0
+step_pin = "PB8"
+dir_pin = "PB7"
+home_pin = "PA6"
+target_speed_deg_s = 120.0
+target_accel_deg_s2 = 800.0
+
+[[joint]]
+name = "J6 tool roll"
+axis = "horizontal"
+motor_mass_kg = 0.10
+link_mass_kg = 0.05
+link_length_m = 0.05
+min_deg = -180.0
+max_deg = 180.0
+home_pos_deg = -180.0
+step_pin = "PB6"
+dir_pin = "PB5"
+home_pin = "PA7"
+target_speed_deg_s = 180.0
+target_accel_deg_s2 = 1200.0
