@@ -12,6 +12,7 @@ plug in *above* it without changing the firmware contract.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 
 from pibot.protocol.codec import (
@@ -63,6 +64,26 @@ class ArmManager:
     @property
     def num_joints(self) -> int:
         return len(self._joints)
+
+    # ---- lifecycle --------------------------------------------------------------------------
+    def open(self) -> None:
+        """Open every board's transport. On partial failure, close what opened and re-raise."""
+        opened: list[Transport] = []
+        try:
+            for t in self._t:
+                t.open()
+                opened.append(t)
+        except Exception:
+            for t in opened:
+                with contextlib.suppress(Exception):
+                    t.close()
+            raise
+
+    def close(self) -> None:
+        """Close every board's transport (best-effort; one failure doesn't skip the rest)."""
+        for t in self._t:
+            with contextlib.suppress(Exception):
+                t.close()
 
     # ---- command routing --------------------------------------------------------------------
     def _send(self, board: int, name: str, args: dict[str, float]) -> None:

@@ -116,6 +116,50 @@ class RobotLink:
             raise RuntimeError("not connected")
         return self._client.telemetry_stream()
 
+    async def arm_telemetry(self) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_telemetry()
+
+    # ---- arm motion — delegated to AgentClient (never a second link) ---------------------
+
+    async def arm_jog(self, joint: int, dps: float) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_jog(joint, dps)
+
+    async def arm_move_joint(
+        self, joint: int, deg: float, speed: float | None = None
+    ) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_move_joint(joint, deg, speed)
+
+    async def arm_move_joints(self, targets: dict[int, float], seconds: float) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_move_joints(targets, seconds)
+
+    async def arm_home(self, joint: int) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_home(joint)
+
+    async def arm_estop(self) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_estop()
+
+    async def arm_clear_estop(self) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_clear_estop()
+
+    async def arm_enable(self, on: bool) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_enable(on)
+
     async def autonomy_start(
         self,
         *,

@@ -147,3 +147,30 @@ def test_move_synchronized_requires_current_and_positive_time() -> None:
         arm.move_synchronized({0: 10.0}, current={0: 0.0}, seconds=0.0)
     with pytest.raises(KeyError):
         arm.move_synchronized({0: 10.0}, current={}, seconds=1.0)
+
+
+def test_open_close_propagate_to_every_board() -> None:
+    t0, t1 = FakeTransport(), FakeTransport()
+    t0.close()
+    t1.close()  # start from a closed state
+    arm = ArmManager([t0, t1], linear_joint_map([1, 1]))
+    arm.open()
+    assert t0.is_open and t1.is_open
+    arm.close()
+    assert not t0.is_open and not t1.is_open
+
+
+def test_open_partial_failure_rolls_back_already_opened() -> None:
+    class FailingOpenTransport(FakeTransport):
+        def open(self) -> None:
+            raise RuntimeError("cannot open this board")
+
+    t0 = FakeTransport()
+    t0.close()
+    bad = FailingOpenTransport()
+    bad.close()
+    arm = ArmManager([t0, bad], linear_joint_map([1, 1]))
+    with pytest.raises(RuntimeError):
+        arm.open()
+    # The board that did open is closed again, so a failed open leaves no port leaked.
+    assert not t0.is_open

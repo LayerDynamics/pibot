@@ -19,7 +19,15 @@ from pibot.cli import build_parser
 
 # Classification of every leaf command. A new command must be added here or
 # ``test_every_command_is_classified`` fails — the registry is the source of truth.
-READ = {"discover", "inventory list", "monitor", "agent status", "agent logs", "agent token"}
+READ = {
+    "discover",
+    "inventory list",
+    "monitor",
+    "agent status",
+    "agent logs",
+    "agent token",
+    "arm telemetry",
+}
 INTERACTIVE = {"run", "connect", "tunnel", "teleop"}
 # `autonomy` is state-changing: its closed-loop `--run` mode actuates the robot through the
 # M4 safety gate (M10 T10.4), so — like every mutating command — it must accept --dry-run to
@@ -40,6 +48,17 @@ STATE_CHANGING = {
     "play",
     "flash",
     "deploy",
+    # `pibot arm` motion verbs all actuate the stepper arm through the host safety gate, so each
+    # supports --dry-run to preview the intent (joint/angle/speed) without opening a transport.
+    "arm jog",
+    "arm move",
+    "arm move-all",
+    "arm home",
+    "arm estop",
+    "arm clear",
+    "arm enable",
+    "arm disable",
+    "arm pose",
 }
 # META = local-only / reversible operations deliberately exempt from --dry-run:
 # inventory edits write local metadata (trivially reversible), firmware build compiles

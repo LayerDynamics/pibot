@@ -7,6 +7,8 @@ builds the aiohttp app, and serves it on the configured bind address.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from aiohttp import web
 
 from agent import __version__
@@ -17,6 +19,10 @@ from pibot.config import Config, load_config
 from pibot.errors import PibotError, UsageError
 from pibot.logging import get_logger
 from pibot.transport.base import Transport
+
+if TYPE_CHECKING:
+    from pibot.arm.manager import ArmManager
+    from pibot.arm.safety import ArmGate
 
 _log = get_logger("pibotd")
 
@@ -81,8 +87,56 @@ def build_camera_broker(cfg: Config) -> CameraBroker | None:
     return CameraBroker(camera, fps=cfg.video_fps)
 
 
+def build_arm(cfg: Config) -> ArmManager | None:
+    """Construct the stepper-arm manager from config, or ``None`` when no arm is configured.
+
+    One ``SerialTransport`` per ``arm_serial_ports`` entry (one per board), with
+    ``arm_joints_per_board`` giving the joint count on each. The arm imports are lazy so the
+    agent core stays free of the arm package until an arm is actually configured.
+    """
+    if not cfg.arm_serial_ports:
+        return None
+    if len(cfg.arm_joints_per_board) != len(cfg.arm_serial_ports):
+        raise UsageError(
+            "arm_joints_per_board must have one entry per arm_serial_ports board "
+            f"({len(cfg.arm_joints_per_board)} != {len(cfg.arm_serial_ports)})"
+        )
+    from pibot.arm.manager import ArmManager, linear_joint_map
+    from pibot.transport.serial import SerialTransport
+
+    transports: list[Transport] = [
+        SerialTransport(port, cfg.arm_baud) for port in cfg.arm_serial_ports
+    ]
+    joints = linear_joint_map(cfg.arm_joints_per_board)
+    _log.info("arm enabled: %d board(s), %d joint(s)", len(transports), len(joints))
+    return ArmManager(transports, joints, encoding=cfg.arm_encoding)
+
+
+def build_arm_gate(cfg: Config, num_joints: int) -> ArmGate:
+    """Construct the host arm safety gate from config's per-joint ``arm_joint_limits``.
+
+    Empty -> a permissive default limit per joint. Otherwise there must be exactly one
+    ``[min_deg, max_deg, max_dps]`` triple per logical joint, cross-checked here (mirrors
+    :func:`build_arm`'s ports/joints length check) so a miscount fails loudly at startup rather
+    than silently mis-clamping a joint.
+    """
+    from pibot.arm.safety import ArmGate, JointLimit
+
+    if not cfg.arm_joint_limits:
+        return ArmGate.with_defaults(num_joints)
+    if len(cfg.arm_joint_limits) != num_joints:
+        raise UsageError(
+            "arm_joint_limits must have one [min_deg,max_deg,max_dps] triple per joint "
+            f"({len(cfg.arm_joint_limits)} != {num_joints})"
+        )
+    limits = [JointLimit(min_deg=t[0], max_deg=t[1], max_dps=t[2]) for t in cfg.arm_joint_limits]
+    return ArmGate(limits)
+
+
 def build_from_config(cfg: Config) -> web.Application:
     """Build the full agent app from configuration."""
+    arm = build_arm(cfg)
+    arm_gate = build_arm_gate(cfg, arm.num_joints) if arm is not None else None
     app = build_app(
         transport=build_transport(cfg),
         token=load_token(cfg.agent_token_path),
@@ -93,6 +147,8 @@ def build_from_config(cfg: Config) -> web.Application:
         broker=build_camera_broker(cfg),
         video_fps=cfg.video_fps,
         video_max_dim=cfg.video_max_dim,
+        arm=arm,
+        arm_gate=arm_gate,
     )
     return app
 

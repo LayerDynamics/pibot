@@ -46,10 +46,12 @@ robot.
 5. **Agent / `pibotd`** (`agent/`) — the on-Pi aiohttp daemon, run as `python -m agent`. It
    is the **sole owner** of the transport. Bearer-token auth on every route except
    `/healthz`. Endpoints: `/health`, `/telemetry` (snapshot + WS push), `/control` (WS
-   command frames → safety → ack/nak), `/estop`, `/config`, `/video`. Closed-loop autonomy
-   (`agent/autonomy.py`) and the camera broker (`agent/video.py`) run **in-process** here.
+   command frames → safety → ack/nak), `/estop`, `/config`, `/video`, `/arm/telemetry`
+   (read-only stepper-arm joint angles + per-joint homed + e-stop state), `/arm/control` (WS
+   motion frames → host arm safety gate → `ArmManager`, when an arm is configured). Closed-loop
+   autonomy (`agent/autonomy.py`) and the camera broker (`agent/video.py`) run **in-process** here.
 6. **CLI** (`pibot/cli.py`) — the host-side `pibot` entrypoint. Subcommands span discover /
-   inventory / keys / agent / teleop / monitor / firmware / flash / play / estop / deploy.
+   inventory / keys / agent / teleop / monitor / firmware / flash / play / estop / arm / deploy.
    Global flags (`--json`/`--verbose`/`--log-json`/`--timeout`) parse before *or* after the
    subcommand.
 7. **ML / Autonomy** (`pibot/ml/`) — `camera`, `dataset` (LeRobot format), `episode_logger`,
@@ -59,9 +61,9 @@ robot.
 8. **Mission Control sidecar** (`pibot/mc/`) — a **loopback-only** (127.0.0.1, never
    public) aiohttp control plane, launched as `python -m pibot.mc --port 0 --token <t>`. It
    prints `PORT=<n>` on stdout so the Rust supervisor can discover the OS-assigned port.
-   `routes_*.py` modules cover control, link, video, autonomy, metrics, sessions, episodes,
-   finetune, policy_server, ops, inventory, config, record. `robot_link.py` owns the single
-   active link and **delegates to `pibot.control.client.AgentClient`** — it never
+   `routes_*.py` modules cover control, link, video, autonomy, arm, metrics, sessions,
+   episodes, finetune, policy_server, ops, inventory, config, record. `robot_link.py` owns the
+   single active link and **delegates to `pibot.control.client.AgentClient`** — it never
    re-implements the link.
 9. **Tauri desktop app** (`app/`) — React 19 + TypeScript + Zustand + Tailwind v4 + Radix UI
    frontend (`app/src/`), Rust core (`app/src-tauri/src/`). `supervisor.rs` spawns and

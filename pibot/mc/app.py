@@ -21,6 +21,7 @@ from pibot.mc.metrics import MetricsStore
 from pibot.mc.ops import OpsRunner
 from pibot.mc.policy_server import PolicyServerManager
 from pibot.mc.robot_link import RobotLink
+from pibot.mc.routes_arm import add_arm_routes
 from pibot.mc.routes_autonomy import add_autonomy_routes
 from pibot.mc.routes_config import add_config_routes
 from pibot.mc.routes_control import add_control_routes
@@ -142,6 +143,7 @@ def create_mc_app(
     add_video_routes(app)
     add_control_routes(app)
     add_autonomy_routes(app)
+    add_arm_routes(app)
     add_policy_server_routes(app, policy_server=policy_server)
     add_metrics_routes(app, metrics_store=metrics_store)
     add_sessions_routes(app, session_recorder=session_recorder)
