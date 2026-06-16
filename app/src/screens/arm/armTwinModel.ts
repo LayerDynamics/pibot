@@ -117,7 +117,7 @@ function setMaterialColor(
 }
 
 function cloneMeshMaterials(node: Mesh): void {
-  if (node.userData.armTwinOwnMaterial) return;
+  if (node.userData.armTwinOwnMaterial || !node.material) return;
   node.material = Array.isArray(node.material)
     ? node.material.map((material) => material.clone())
     : node.material.clone();
