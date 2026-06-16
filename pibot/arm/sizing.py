@@ -759,14 +759,17 @@ def emit_urdf(spec: ArmSpec) -> str:
     """
     from pibot.arm import geometry
 
+    if len(spec.joints) > len(geometry.STANDARD_6R_AXES):
+        raise ValueError(
+            f"Arm spec defines {len(spec.joints)} joints, "
+            f"but only {len(geometry.STANDARD_6R_AXES)} STANDARD_6R_AXES are defined. "
+            "Update geometry.STANDARD_6R_AXES or adjust the arm spec to match."
+        )
+
     joints = [
         geometry.JointGeom(
             name=jc.name,
-            axis=(
-                geometry.STANDARD_6R_AXES[i]
-                if i < len(geometry.STANDARD_6R_AXES)
-                else (0.0, 1.0, 0.0)
-            ),
+            axis=geometry.STANDARD_6R_AXES[i],
             length_m=jc.link_length_m,
             min_deg=jc.min_deg,
             max_deg=jc.max_deg,
