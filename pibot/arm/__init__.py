@@ -7,7 +7,9 @@ joint commands to the right board and aggregates telemetry; kinematics/IK layer 
 
 from pibot.arm.kinematics import DirectSolver, JointSolver, NamedPoseSolver
 from pibot.arm.manager import ArmManager, GripperState, JointRef, linear_joint_map
+from pibot.arm.programs import Pose, Program, ProgramStep, record_pose
 from pibot.arm.safety import ArmGate, GateResult, JointLimit
+from pibot.arm.trajectory import TrajectoryFrame, cartesian_trajectory, joint_trajectory
 
 __all__ = [
     "ArmGate",
@@ -19,5 +21,12 @@ __all__ = [
     "JointRef",
     "JointSolver",
     "NamedPoseSolver",
+    "Pose",
+    "Program",
+    "ProgramStep",
+    "TrajectoryFrame",
+    "cartesian_trajectory",
+    "joint_trajectory",
     "linear_joint_map",
+    "record_pose",
 ]

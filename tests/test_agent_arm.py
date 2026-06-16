@@ -730,3 +730,265 @@ def test_agent_client_arm_move_cartesian_routes_through_ik() -> None:
         assert "jmove" in fake.names()
 
     _run(body())
+
+
+# ---- M-ARM-5 task 5.4: pose/program persistence + runner -------------------
+
+
+def test_arm_pose_crud_records_from_telemetry_and_survives_restart(tmp_path: Any) -> None:
+    async def body() -> None:
+        fake = FakeArmTransport([12.5, -4.0])
+        arm = ArmManager([fake], linear_joint_map([2]))
+        app = build_app(
+            transport=ResponderTransport(),
+            trust_loopback=True,
+            arm=arm,
+            arm_state_dir=tmp_path,
+        )
+        async with TestClient(TestServer(app)) as c:
+            await _await_telemetry(c)
+            created = await c.post("/arm/poses", json={"name": "ready"})
+            assert created.status == 201
+            pose = await created.json()
+            assert pose["name"] == "ready"
+            assert pose["joints"] == {"0": 12.5, "1": -4.0}
+
+            listed = await (await c.get("/arm/poses")).json()
+            assert [row["name"] for row in listed["poses"]] == ["ready"]
+
+        # Restart against the same state dir: the recorded pose is still there.
+        app2 = build_app(
+            transport=ResponderTransport(),
+            trust_loopback=True,
+            arm_state_dir=tmp_path,
+        )
+        async with TestClient(TestServer(app2)) as c:
+            fetched = await (await c.get("/arm/poses/ready")).json()
+            assert fetched["name"] == "ready"
+            assert fetched["joints"] == {"0": 12.5, "1": -4.0}
+            deleted = await c.delete("/arm/poses/ready")
+            assert deleted.status == 200
+            assert (await c.get("/arm/poses/ready")).status == 404
+
+    _run(body())
+
+
+def test_arm_program_crud_runs_steps_in_order_and_persists(tmp_path: Any) -> None:
+    async def body() -> None:
+        from agent.app import STATE
+
+        fake = RecordingArmTransport([0.0, 0.0])
+        arm = ArmManager([fake], linear_joint_map([2]))
+        app = build_app(
+            transport=ResponderTransport(),
+            trust_loopback=True,
+            arm=arm,
+            arm_state_dir=tmp_path,
+        )
+        app[STATE].arm_positions = {0: 0.0, 1: 0.0}
+        app[STATE].arm_positions_ts = time.time()
+        app[STATE].arm_homed = {0, 1}
+        async with TestClient(TestServer(app)) as c:
+            pose_resp = await c.post(
+                "/arm/poses",
+                json={
+                    "pose": {
+                        "name": "ready",
+                        "joints": {"0": 20.0, "1": -10.0},
+                        "created": 1.0,
+                    }
+                },
+            )
+            assert pose_resp.status == 201
+
+            program_body = {
+                "name": "demo",
+                "created": 2.0,
+                "steps": [
+                    {"kind": "moveJ", "pose": "ready", "seconds": 0.05},
+                    {"kind": "wait", "seconds": 0.02},
+                    {"kind": "grip", "deg": 15.0},
+                    {"kind": "tool", "on": True},
+                ],
+            }
+            created = await c.post("/arm/programs", json=program_body)
+            assert created.status == 201
+
+            listed = await (await c.get("/arm/programs")).json()
+            assert [row["name"] for row in listed["programs"]] == ["demo"]
+
+            run = await c.post("/arm/programs/demo/run")
+            assert run.status == 202
+            for _ in range(40):
+                task = app[STATE].arm_program_task
+                if task is None or task.done():
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("program task never finished")
+
+        names = fake.names()
+        assert "jmove" in names
+        assert names.index("grip") > names.index("jmove")
+        assert names.index("tool") > names.index("grip")
+
+        app2 = build_app(
+            transport=ResponderTransport(),
+            trust_loopback=True,
+            arm_state_dir=tmp_path,
+        )
+        async with TestClient(TestServer(app2)) as c:
+            fetched = await (await c.get("/arm/programs/demo")).json()
+            assert fetched["name"] == "demo"
+            assert fetched["steps"][0]["kind"] == "moveJ"
+
+    _run(body())
+
+
+def test_arm_program_stop_aborts_mid_run(tmp_path: Any) -> None:
+    async def body() -> None:
+        from agent.app import STATE
+
+        fake = RecordingArmTransport([0.0])
+        arm = ArmManager([fake], linear_joint_map([1]))
+        app = build_app(
+            transport=ResponderTransport(),
+            trust_loopback=True,
+            arm=arm,
+            arm_state_dir=tmp_path,
+        )
+        app[STATE].arm_positions = {0: 0.0}
+        app[STATE].arm_positions_ts = time.time()
+        app[STATE].arm_homed = {0}
+        async with TestClient(TestServer(app)) as c:
+            await c.post(
+                "/arm/programs",
+                json={
+                    "name": "linger",
+                    "steps": [
+                        {"kind": "wait", "seconds": 0.5},
+                        {"kind": "grip", "deg": 5.0},
+                    ],
+                },
+            )
+            assert (await c.post("/arm/programs/linger/run")).status == 202
+            await asyncio.sleep(0.05)
+            stopped = await c.post("/arm/programs/stop")
+            assert stopped.status == 200
+            for _ in range(40):
+                task = app[STATE].arm_program_task
+                if task is None or task.done():
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("program stop did not abort the task")
+
+        assert "grip" not in fake.names()
+
+    _run(body())
+
+
+def test_arm_program_status_progress_and_stop_surface_in_telemetry(tmp_path: Any) -> None:
+    async def body() -> None:
+        from agent.app import STATE
+
+        fake = RecordingArmTransport([0.0])
+        arm = ArmManager([fake], linear_joint_map([1]))
+        app = build_app(
+            transport=ResponderTransport(),
+            trust_loopback=True,
+            arm=arm,
+            arm_state_dir=tmp_path,
+        )
+        app[STATE].arm_positions = {0: 0.0}
+        app[STATE].arm_positions_ts = time.time()
+        app[STATE].arm_homed = {0}
+        async with TestClient(TestServer(app)) as c:
+            await c.post(
+                "/arm/programs",
+                json={
+                    "name": "linger",
+                    "steps": [
+                        {"kind": "wait", "seconds": 0.5},
+                        {"kind": "grip", "deg": 5.0},
+                    ],
+                },
+            )
+            assert (await c.post("/arm/programs/linger/run")).status == 202
+
+            # While the wait step runs, the control plane must remain responsive and telemetry must
+            # expose progress so the UI can show live step state.
+            for _ in range(40):
+                telemetry = await (await c.get("/arm/telemetry")).json()
+                program = telemetry.get("program")
+                if program and program["state"] == "running":
+                    assert program["name"] == "linger"
+                    assert program["current_step"] == 1
+                    assert program["total_steps"] == 2
+                    assert program["current_kind"] == "wait"
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("telemetry never reported a running program")
+
+            assert (await c.get("/health")).status == 200
+
+            assert (await c.post("/arm/programs/stop")).status == 200
+            for _ in range(40):
+                telemetry = await (await c.get("/arm/telemetry")).json()
+                program = telemetry.get("program")
+                if program and program["state"] == "stopped":
+                    assert program["name"] == "linger"
+                    assert program["message"] == "stopped"
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("telemetry never reported the stopped program")
+
+    _run(body())
+
+
+def test_arm_estop_aborts_running_program(tmp_path: Any) -> None:
+    async def body() -> None:
+        from agent.app import STATE
+
+        fake = RecordingArmTransport([0.0])
+        arm = ArmManager([fake], linear_joint_map([1]))
+        app = build_app(
+            transport=ResponderTransport(),
+            trust_loopback=True,
+            arm=arm,
+            arm_state_dir=tmp_path,
+        )
+        app[STATE].arm_positions = {0: 0.0}
+        app[STATE].arm_positions_ts = time.time()
+        app[STATE].arm_homed = {0}
+        async with TestClient(TestServer(app)) as c:
+            await c.post(
+                "/arm/programs",
+                json={
+                    "name": "abort-me",
+                    "steps": [
+                        {"kind": "wait", "seconds": 0.5},
+                        {"kind": "grip", "deg": 5.0},
+                    ],
+                },
+            )
+            assert (await c.post("/arm/programs/abort-me/run")).status == 202
+            await asyncio.sleep(0.05)
+            ws = await c.ws_connect("/arm/control")
+            await ws.send_json({"cmd": "estop"})
+            assert (await ws.receive_json())["type"] == "ack"
+            await ws.close()
+            for _ in range(40):
+                task = app[STATE].arm_program_task
+                if task is None or task.done():
+                    break
+                await asyncio.sleep(0.02)
+            else:
+                raise AssertionError("e-stop did not abort the task")
+
+        assert "grip" not in fake.names()
+        assert app[STATE].arm_estopped is True
+
+    _run(body())

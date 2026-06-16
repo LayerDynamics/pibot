@@ -22,8 +22,17 @@ function seed(over: Partial<ReturnType<typeof useArmStore.getState>> = {}): void
     ageMs: 50,
     stale: false,
     loaded: true,
+    poses: [],
+    programs: [],
+    programStatus: null,
     error: null,
     fetch: async () => {},
+    fetchPoses: async () => {},
+    poseSave: async () => {},
+    fetchPrograms: async () => {},
+    saveProgram: async () => {},
+    runProgram: async () => {},
+    stopProgram: async () => {},
     ...over,
   });
 }
@@ -161,5 +170,62 @@ describe("Arm screen controls", () => {
     seed({ estopped: true });
     render(<Arm ep={EP} />);
     expect(screen.getByTestId("arm-xyz-go")).toBeDisabled();
+  });
+
+  it("renders the teach/playback panel, saves an ordered multi-step program, and shows progress", () => {
+    const poseSave = vi.fn().mockResolvedValue(undefined);
+    const saveProgram = vi.fn().mockResolvedValue(undefined);
+    const runProgram = vi.fn().mockResolvedValue(undefined);
+    const stopProgram = vi.fn().mockResolvedValue(undefined);
+    seed({
+      poseSave,
+      saveProgram,
+      runProgram,
+      stopProgram,
+      poses: [{ name: "ready", joints: { "0": 10, "1": 20 }, created: 1 }],
+      programs: [{ name: "pick", steps: [{ kind: "moveJ", pose: "ready", seconds: 1 }] }],
+      programStatus: {
+        name: "pick",
+        state: "running",
+        current_step: 2,
+        total_steps: 3,
+        current_kind: "wait",
+        message: null,
+      },
+    });
+    render(<Arm ep={EP} />);
+
+    fireEvent.change(screen.getByTestId("arm-pose-name"), { target: { value: "ready" } });
+    fireEvent.click(screen.getByTestId("arm-pose-save"));
+    expect(poseSave).toHaveBeenLastCalledWith(EP, "ready");
+
+    expect(screen.getByTestId("arm-pose-row-ready")).toBeInTheDocument();
+    expect(screen.getByTestId("arm-program-row-pick")).toBeInTheDocument();
+    expect(screen.getByTestId("arm-program-progress")).toHaveTextContent("2 / 3");
+    expect(screen.getByTestId("arm-program-progress")).toHaveTextContent("wait");
+
+    fireEvent.change(screen.getByTestId("arm-program-name"), { target: { value: "demo" } });
+    fireEvent.change(screen.getByTestId("arm-program-step-pose"), { target: { value: "ready" } });
+    fireEvent.change(screen.getByTestId("arm-program-step-seconds"), { target: { value: "1.5" } });
+    fireEvent.click(screen.getByTestId("arm-program-add-step"));
+
+    fireEvent.change(screen.getByTestId("arm-program-step-kind"), { target: { value: "wait" } });
+    fireEvent.change(screen.getByTestId("arm-program-step-seconds"), { target: { value: "0.25" } });
+    fireEvent.click(screen.getByTestId("arm-program-add-step"));
+    fireEvent.click(screen.getByTestId("arm-program-step-up-1"));
+    fireEvent.click(screen.getByTestId("arm-program-save"));
+
+    expect(saveProgram).toHaveBeenLastCalledWith(EP, {
+      name: "demo",
+      steps: [
+        { kind: "wait", seconds: 0.25 },
+        { kind: "moveJ", pose: "ready", seconds: 1.5 },
+      ],
+    });
+
+    fireEvent.click(screen.getByTestId("arm-program-run-pick"));
+    expect(runProgram).toHaveBeenLastCalledWith(EP, "pick");
+    fireEvent.click(screen.getByTestId("arm-program-stop"));
+    expect(stopProgram).toHaveBeenLastCalledWith(EP);
   });
 });

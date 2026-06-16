@@ -70,6 +70,106 @@ def _fake_pibotd_with_arm(
     return app
 
 
+def _fake_pibotd_with_arm_state(
+    snapshot: dict[str, Any],
+    *,
+    calls: list[dict[str, Any]],
+) -> web.Application:
+    """Fake pibotd with arm telemetry, motion WS, and pose/program CRUD state."""
+
+    poses: dict[str, dict[str, Any]] = {}
+    programs: dict[str, dict[str, Any]] = {}
+
+    async def arm_telemetry(request: web.Request) -> web.Response:
+        return web.json_response(snapshot)
+
+    async def arm_control(request: web.Request) -> web.StreamResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        async for msg in ws:
+            if msg.type is web.WSMsgType.TEXT:
+                await ws.send_json({"type": "ack"})
+        return ws
+
+    async def pose_list(request: web.Request) -> web.Response:
+        return web.json_response({"poses": list(poses.values())})
+
+    async def pose_post(request: web.Request) -> web.Response:
+        body = await request.json()
+        calls.append({"method": "POST", "path": "/arm/poses", "body": body})
+        pose = body.get("pose") or {
+            "name": body["name"],
+            "joints": {"0": 1.0},
+            "created": 1.0,
+        }
+        poses[pose["name"]] = pose
+        return web.json_response(pose, status=201)
+
+    async def pose_get(request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        if name not in poses:
+            raise web.HTTPNotFound()
+        return web.json_response(poses[name])
+
+    async def pose_delete(request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        poses.pop(name, None)
+        calls.append({"method": "DELETE", "path": f"/arm/poses/{name}"})
+        return web.json_response({"deleted": name})
+
+    async def program_list(request: web.Request) -> web.Response:
+        return web.json_response({"programs": list(programs.values())})
+
+    async def program_post(request: web.Request) -> web.Response:
+        body = await request.json()
+        calls.append({"method": "POST", "path": "/arm/programs", "body": body})
+        programs[body["name"]] = body
+        return web.json_response(body, status=201)
+
+    async def program_get(request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        if name not in programs:
+            raise web.HTTPNotFound()
+        return web.json_response(programs[name])
+
+    async def program_delete(request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        programs.pop(name, None)
+        calls.append({"method": "DELETE", "path": f"/arm/programs/{name}"})
+        return web.json_response({"deleted": name})
+
+    async def program_run(request: web.Request) -> web.Response:
+        name = request.match_info["name"]
+        calls.append({"method": "POST", "path": f"/arm/programs/{name}/run"})
+        return web.json_response({"running": True, "name": name}, status=202)
+
+    async def program_stop(request: web.Request) -> web.Response:
+        calls.append({"method": "POST", "path": "/arm/programs/stop"})
+        return web.json_response({"stopped": True})
+
+    async def video(request: web.Request) -> web.StreamResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.close()
+        return ws
+
+    app = web.Application()
+    app.router.add_get("/arm/telemetry", arm_telemetry)
+    app.router.add_get("/arm/control", arm_control)
+    app.router.add_get("/arm/poses", pose_list)
+    app.router.add_post("/arm/poses", pose_post)
+    app.router.add_get("/arm/poses/{name}", pose_get)
+    app.router.add_delete("/arm/poses/{name}", pose_delete)
+    app.router.add_get("/arm/programs", program_list)
+    app.router.add_post("/arm/programs", program_post)
+    app.router.add_post("/arm/programs/stop", program_stop)
+    app.router.add_get("/arm/programs/{name}", program_get)
+    app.router.add_delete("/arm/programs/{name}", program_delete)
+    app.router.add_post("/arm/programs/{name}/run", program_run)
+    app.router.add_get("/video", video)
+    return app
+
+
 def test_arm_telemetry_proxies_pibotd_snapshot() -> None:
     async def body() -> None:
         fake_app = _fake_pibotd_with_arm(_ARM_SNAP)
@@ -329,5 +429,89 @@ def test_arm_motion_route_400_on_bad_body() -> None:
                 )
                 assert r.status == 400
                 assert received == []  # nothing reached the robot
+
+    _run(body())
+
+
+def test_robot_link_pose_and_program_methods_delegate_to_client() -> None:
+    async def body() -> None:
+        calls: list[dict[str, Any]] = []
+        fake_app = _fake_pibotd_with_arm_state(_ARM_SNAP, calls=calls)
+        async with TestServer(fake_app) as fake:
+            base = str(fake.make_url("/")).rstrip("/")
+            link = RobotLink(resolver=lambda _: (base, None))
+            await link.connect("bot")
+            try:
+                pose = await link.arm_pose_save("ready")
+                assert pose["name"] == "ready"
+                assert [row["name"] for row in (await link.arm_pose_list())["poses"]] == ["ready"]
+                program = {"name": "demo", "steps": [{"kind": "wait", "seconds": 0.1}]}
+                assert (await link.arm_program_save(program))["name"] == "demo"
+                assert [row["name"] for row in (await link.arm_program_list())["programs"]] == [
+                    "demo"
+                ]
+                assert (await link.arm_program_run("demo"))["running"] is True
+                assert (await link.arm_program_stop())["stopped"] is True
+                assert (await link.arm_pose_delete("ready"))["deleted"] == "ready"
+                assert (await link.arm_program_delete("demo"))["deleted"] == "demo"
+            finally:
+                await link.disconnect()
+
+        assert calls == [
+            {"method": "POST", "path": "/arm/poses", "body": {"name": "ready"}},
+            {
+                "method": "POST",
+                "path": "/arm/programs",
+                "body": {"name": "demo", "steps": [{"kind": "wait", "seconds": 0.1}]},
+            },
+            {"method": "POST", "path": "/arm/programs/demo/run"},
+            {"method": "POST", "path": "/arm/programs/stop"},
+            {"method": "DELETE", "path": "/arm/poses/ready"},
+            {"method": "DELETE", "path": "/arm/programs/demo"},
+        ]
+
+    _run(body())
+
+
+def test_arm_pose_and_program_routes_proxy_to_robot_link() -> None:
+    async def body() -> None:
+        calls: list[dict[str, Any]] = []
+        fake_app = _fake_pibotd_with_arm_state(_ARM_SNAP, calls=calls)
+        async with TestServer(fake_app) as fake:
+            base = str(fake.make_url("/")).rstrip("/")
+            state = McState(token="secret", link=RobotLink(resolver=lambda _: (base, None)))
+            app = create_mc_app(state=state)
+            async with TestClient(TestServer(app)) as c:
+                assert (
+                    await c.post("/api/connect", json={"robot": "bot"}, headers=_AUTH)
+                ).status == 201
+
+                created = await c.post("/api/arm/poses", json={"name": "ready"}, headers=_AUTH)
+                assert created.status == 201
+                assert (await created.json())["name"] == "ready"
+                listed = await (await c.get("/api/arm/poses", headers=_AUTH)).json()
+                assert [row["name"] for row in listed["poses"]] == ["ready"]
+
+                prog = {"name": "demo", "steps": [{"kind": "wait", "seconds": 0.1}]}
+                assert (await c.post("/api/arm/programs", json=prog, headers=_AUTH)).status == 201
+                run = await c.post("/api/arm/programs/demo/run", headers=_AUTH)
+                assert run.status == 202
+                stop = await c.post("/api/arm/programs/stop", headers=_AUTH)
+                assert stop.status == 200
+                assert (await c.delete("/api/arm/poses/ready", headers=_AUTH)).status == 200
+                assert (await c.delete("/api/arm/programs/demo", headers=_AUTH)).status == 200
+
+        assert calls == [
+            {"method": "POST", "path": "/arm/poses", "body": {"name": "ready"}},
+            {
+                "method": "POST",
+                "path": "/arm/programs",
+                "body": {"name": "demo", "steps": [{"kind": "wait", "seconds": 0.1}]},
+            },
+            {"method": "POST", "path": "/arm/programs/demo/run"},
+            {"method": "POST", "path": "/arm/programs/stop"},
+            {"method": "DELETE", "path": "/arm/poses/ready"},
+            {"method": "DELETE", "path": "/arm/programs/demo"},
+        ]
 
     _run(body())

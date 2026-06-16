@@ -240,8 +240,8 @@ not "PiBot is behind."
 |---|---|---|---|
 | **IK (Cartesian pose → joints)** | **A.5** | ✅ **SHIPPED (M-ARM-4).** `IKSolver` (numeric ikpy over the in-tree geometry) drops into the `JointSolver` seam; Cartesian jog/move reaches `/arm/control` → `ArmManager.move_synchronized` (`pibot arm move-xyz`, `POST /api/arm/move-cartesian`, Arm-screen Cartesian panel). | Analytic donors: smallrobotarm, open6x (8-soln), ar2/ar4-hmi, dummy. Numeric: moveo/ar3/ar4-ros/thor (KDL), 6ar/parol6 (roboticstoolbox), `ikpy` per donor README. |
 | **FK (joints → Cartesian)** | implied by A.5 | ✅ **SHIPPED (M-ARM-3).** `ForwardKinematics` surfaces the EE pose in `/arm/telemetry`, `pibot arm telemetry`, and the Arm screen. | Same donors (every Tier-1/2 arm has FK). Needed for telemetry→pose. |
-| **Coordinated trajectories / blending / waypoint programs** | **A.4** | `move_synchronized` (synchronized arrival) exists in `ArmManager`; no blending/waypoints | 6ar (trapezoidal+SLERP), thor/moveo (MoveIt), faze4 (offline arrays), smallrobotarm (Cartesian-linear). |
-| **Motion control UI (jog / home / e-stop buttons)** | "later, hardware-gated milestone" (Arm.tsx header) | UI is read-only | danieljhand (Flask sliders), 6ar/thor (web pendant), ar4-hmi/ar2 (desktop). |
+| **Coordinated trajectories / blending / waypoint programs** | **A.4** | ✅ **SHIPPED (M-ARM-5).** `pibot/arm/trajectory.py` adds trapezoidal joint ramps plus Cartesian-linear + SLERP waypoints; `ArmManager.run_trajectory()` executes timed frames with abort checks; recorded poses and persisted programs replay through the agent/MC/CLI/UI surface. | 6ar (trapezoidal+SLERP), thor/moveo (MoveIt), faze4 (offline arrays), smallrobotarm (Cartesian-linear). |
+| **Motion control UI (jog / home / e-stop buttons)** | "later, hardware-gated milestone" (Arm.tsx header) | ✅ **SHIPPED (M-ARM-1 / M-ARM-5).** `Arm.tsx` now exposes jog/home/e-stop, absolute + Cartesian moves, gripper/tool control, a teach/playback builder, and live program progress from telemetry. | danieljhand (Flask sliders), 6ar/thor (web pendant), ar4-hmi/ar2 (desktop). |
 
 ### 6B. Genuinely unaddressed gaps (the high-value findings)
 
@@ -268,12 +268,14 @@ missing pieces.
    bench-confirmed on re-flash. *(Originally: no gripper concept; the spare `E0`
    channel was unused — most functional donors control one: servo, digital/pneumatic, CAN, Dynamixel.)*
 
-3. **No teach & playback / pose programs / persistence.** `NamedPoseSolver` holds **static presets
-   defined in code** — there is no record-from-current-pose, no replay sequence, no program/job
-   editor, and no on-disk persistence. Donors with real teach/playback: ar2 & ar4-hmi (full job
-   languages with IO/branch/registers), 6ar (drag-drop block programs), thor (localStorage),
-   danieljhand (save/recall), manuel (teach-by-backdrive), charm (per-square tables), faze4 (waypoint
-   arrays).
+3. **No teach & playback / pose programs / persistence.** ✅ **SHIPPED (M-ARM-5, 2026-06-16).**
+   PiBot now records named poses from live telemetry, persists poses/programs as JSON under the
+   agent state dir, expands `moveJ|moveL|grip|tool|wait|loop` program steps, and replays them
+   through the host gate via timed trajectories. The surface is end-to-end: agent
+   `GET/POST/DELETE /arm/poses*`, `GET/POST/DELETE /arm/programs*`, `POST /arm/programs/{name}/run`,
+   `POST /arm/programs/stop`; `AgentClient`/`RobotLink`; MC proxy routes; CLI
+   `pose-save|pose-list|program-list|program-run|program-stop`; and an `Arm.tsx` teach/playback
+   panel with ordered-step editing plus live per-step progress.
 
 4. **No kinematic model / geometry artifact wired into the tree.** ✅ **SHIPPED (M-ARM-3,
    2026-06-16).** An in-tree 6-DOF URDF (`pibot/arm/geometry/pibot_arm.urdf`) **generated from the
@@ -403,14 +405,12 @@ Observations on how the §6B gaps depend on each other, so they aren't read as f
   once:** IK (plan A.5),
   FK, and a 3D twin (§6B-5) all block on a URDF/DH model being present in-tree. It is the single
   highest-fan-out missing piece, and the donor corpus exists precisely to supply it (§9).
-- **Gripper (§6B-2, now shipped in M-ARM-2) and teach/playback (§6B-3) are largely independent** of
-  the kinematics chain — the gripper needed only the spare `E0` channel + a protocol verb (done);
-  teach/playback extends `NamedPoseSolver` with record/replay + persistence (6ar's block model is the
-  in-corpus template).
-- **The "later UI milestone" deferral (§6A) collapses into §6B-1 and §6B-5** — once a control surface
-  and a model exist, the read-only `Arm.tsx` becomes a jog/teach/twin panel. The **jog/home/move/
-  E-Stop** half shipped in M-ARM-1 (`Arm.tsx` now has motion controls); teach/playback (§6B-3) and the
-  twin (§6B-5) follow in M-ARM-5/6.
+- **Gripper (§6B-2) and teach/playback (§6B-3) both shipped cleanly without changing the firmware↔host
+  seam.** The gripper needed only the spare `E0` channel + protocol verbs; teach/playback layered
+  persistence + timed replay above `ArmManager` (`trajectory.py`, `programs.py`, agent runner).
+- **The "later UI milestone" deferral (§6A) is now mostly retired.** `Arm.tsx` has the jog/home/move/
+  E-Stop controls from M-ARM-1 and the teach/playback builder + live progress from M-ARM-5. The main
+  remaining UI gap is the future twin/model-rich panel (§6B-5), not basic control/programming.
 
 Note for balance: PiBot's **safety model and sizing calculator are already best-in-corpus** (§7) —
 they are not gaps and are the foundation the missing pieces would build on, not replace.

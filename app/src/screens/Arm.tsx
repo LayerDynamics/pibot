@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from "react";
 
-import type { McEndpoint } from "../lib/api/types";
+import type { ArmProgram, ArmProgramStep, McEndpoint } from "../lib/api/types";
 import { useArmStore } from "../stores/armStore";
 import { useConnectionStore } from "../stores/connectionStore";
 
@@ -19,10 +19,23 @@ const POLL_MS = 250;
 const ANGLE_SPAN_DEG = 180;
 // Fixed velocity for the ± jog buttons (deg/sec); held down to move, released to stop.
 const JOG_DPS = 15;
+const EDITABLE_STEP_KINDS = ["moveJ", "moveL", "wait", "grip", "tool"] as const;
+
+type EditableStepKind = (typeof EDITABLE_STEP_KINDS)[number];
 
 function barFill(deg: number): number {
   const clamped = Math.max(-ANGLE_SPAN_DEG, Math.min(ANGLE_SPAN_DEG, deg));
   return ((clamped + ANGLE_SPAN_DEG) / (2 * ANGLE_SPAN_DEG)) * 100;
+}
+
+function describeStep(step: ArmProgramStep): string {
+  if (step.kind === "moveJ" || step.kind === "moveL") {
+    return `${step.kind} ${step.pose ?? "pose"} · ${(step.seconds ?? 0).toFixed(2)} s`;
+  }
+  if (step.kind === "wait") return `wait · ${(step.seconds ?? 0).toFixed(2)} s`;
+  if (step.kind === "grip") return `grip · ${(step.deg ?? 0).toFixed(0)}°`;
+  if (step.kind === "tool") return `tool · ${step.on ? "on" : "off"}`;
+  return `loop ×${step.count ?? 0}`;
 }
 
 /**
@@ -72,11 +85,20 @@ export default function Arm({ ep }: Props) {
     estopped,
     gripper,
     pose,
+    programStatus,
     ageMs,
     stale,
+    poses,
+    programs,
     loaded,
     error,
     fetch,
+    fetchPoses,
+    poseSave,
+    fetchPrograms,
+    saveProgram,
+    runProgram,
+    stopProgram,
     jog,
     moveJoint,
     home,
@@ -92,6 +114,15 @@ export default function Arm({ ep }: Props) {
   const [goal, setGoal] = useState<Record<string, string>>({});
   const [gripGoal, setGripGoal] = useState(0);
   const [xyzGoal, setXyzGoal] = useState({ x: "0", y: "0", z: "0", seconds: "2" });
+  const [poseName, setPoseName] = useState("");
+  const [programName, setProgramName] = useState("");
+  const [draftSteps, setDraftSteps] = useState<ArmProgramStep[]>([]);
+  const [editingStep, setEditingStep] = useState<number | null>(null);
+  const [stepKind, setStepKind] = useState<EditableStepKind>("moveJ");
+  const [stepPose, setStepPose] = useState("");
+  const [stepSeconds, setStepSeconds] = useState("1");
+  const [stepGripDeg, setStepGripDeg] = useState("0");
+  const [stepToolOn, setStepToolOn] = useState(true);
 
   useEffect(() => {
     if (!ep || !connected) {
@@ -99,12 +130,18 @@ export default function Arm({ ep }: Props) {
       return;
     }
     void fetch(ep);
+    void fetchPoses(ep);
+    void fetchPrograms(ep);
     const id = setInterval(() => void fetch(ep), POLL_MS);
     return () => {
       clearInterval(id);
       reset();
     };
-  }, [ep, connected, fetch, reset]);
+  }, [ep, connected, fetch, fetchPoses, fetchPrograms, reset]);
+
+  useEffect(() => {
+    if (!stepPose && poses.length > 0) setStepPose(poses[0].name);
+  }, [poses, stepPose]);
 
   const jointIds = Array.from({ length: numJoints }, (_, i) => String(i));
   const canControl = connected && enabled && ep !== null;
@@ -131,6 +168,93 @@ export default function Arm({ ep }: Props) {
       void moveCartesian(ep, x / 1000, y / 1000, z / 1000, seconds);
     }
   };
+
+  const recordPose = () => {
+    const name = poseName.trim();
+    if (!ep || !name) return;
+    setPoseName("");
+    void poseSave(ep, name);
+  };
+
+  const resetStepEditor = () => {
+    setEditingStep(null);
+    setStepKind("moveJ");
+    setStepSeconds("1");
+    setStepGripDeg("0");
+    setStepToolOn(true);
+    setStepPose(poses[0]?.name ?? "");
+  };
+
+  const buildDraftStep = (): ArmProgramStep | null => {
+    if (stepKind === "moveJ" || stepKind === "moveL") {
+      const seconds = Number.parseFloat(stepSeconds);
+      if (!stepPose || Number.isNaN(seconds) || seconds <= 0) return null;
+      return { kind: stepKind, pose: stepPose, seconds };
+    }
+    if (stepKind === "wait") {
+      const seconds = Number.parseFloat(stepSeconds);
+      if (Number.isNaN(seconds) || seconds <= 0) return null;
+      return { kind: "wait", seconds };
+    }
+    if (stepKind === "grip") {
+      const deg = Number.parseFloat(stepGripDeg);
+      if (Number.isNaN(deg)) return null;
+      return { kind: "grip", deg };
+    }
+    return { kind: "tool", on: stepToolOn };
+  };
+
+  const stageStep = () => {
+    const step = buildDraftStep();
+    if (!step) return;
+    setDraftSteps((current) => {
+      if (editingStep === null) return [...current, step];
+      return current.map((existing, index) => (index === editingStep ? step : existing));
+    });
+    resetStepEditor();
+  };
+
+  const editDraftStep = (index: number) => {
+    const step = draftSteps[index];
+    if (!step || step.kind === "loop") return;
+    setEditingStep(index);
+    setStepKind(step.kind);
+    setStepPose(step.pose ?? poses[0]?.name ?? "");
+    setStepSeconds(String(step.seconds ?? 1));
+    setStepGripDeg(String(step.deg ?? 0));
+    setStepToolOn(step.on ?? true);
+  };
+
+  const moveDraftStep = (index: number, delta: -1 | 1) => {
+    const next = index + delta;
+    if (next < 0 || next >= draftSteps.length) return;
+    setDraftSteps((current) => {
+      const updated = [...current];
+      const [step] = updated.splice(index, 1);
+      updated.splice(next, 0, step);
+      return updated;
+    });
+    if (editingStep === index) setEditingStep(next);
+    else if (editingStep === next) setEditingStep(index);
+  };
+
+  const deleteDraftStep = (index: number) => {
+    setDraftSteps((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    if (editingStep === index) resetStepEditor();
+    else if (editingStep !== null && editingStep > index) setEditingStep(editingStep - 1);
+  };
+
+  const saveDraftProgram = () => {
+    const name = programName.trim();
+    if (!ep || !name || draftSteps.length === 0) return;
+    const program: ArmProgram = { name, steps: draftSteps };
+    setProgramName("");
+    setDraftSteps([]);
+    resetStepEditor();
+    void saveProgram(ep, program);
+  };
+
+  const stagedStep = buildDraftStep();
 
   return (
     <div className="flex flex-col gap-4 p-4" data-testid="arm-screen">
@@ -409,6 +533,250 @@ export default function Arm({ ep }: Props) {
               </div>
             </div>
           )}
+
+          <div
+            className="flex flex-col gap-3 rounded border border-zinc-800 px-3 py-2"
+            data-testid="arm-teach-panel"
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                data-testid="arm-pose-name"
+                value={poseName}
+                disabled={!canControl}
+                onChange={(e) => setPoseName(e.target.value)}
+                className="w-32 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                placeholder="pose name"
+              />
+              <button
+                type="button"
+                data-testid="arm-pose-save"
+                disabled={!canControl || !poseName.trim()}
+                onClick={recordPose}
+                className="rounded bg-sky-700 px-3 py-1 text-sm text-zinc-100 hover:bg-sky-600 disabled:opacity-40"
+              >
+                Record pose
+              </button>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-zinc-300">Saved poses</span>
+                {poses.length === 0 && <span className="text-xs text-zinc-500">No poses yet.</span>}
+                {poses.map((savedPose) => (
+                  <div
+                    key={savedPose.name}
+                    data-testid={`arm-pose-row-${savedPose.name}`}
+                    className="rounded border border-zinc-800 px-2 py-1 text-xs text-zinc-200"
+                  >
+                    {savedPose.name}
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-medium text-zinc-300">Program builder</span>
+                {programStatus && (
+                  <div
+                    data-testid="arm-program-progress"
+                    className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-200"
+                  >
+                    {programStatus.name} · {programStatus.state}
+                    {programStatus.current_step !== null &&
+                      ` · ${programStatus.current_step} / ${programStatus.total_steps}`}
+                    {programStatus.current_kind && ` · ${programStatus.current_kind}`}
+                    {programStatus.message && ` · ${programStatus.message}`}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="text"
+                    data-testid="arm-program-name"
+                    value={programName}
+                    onChange={(e) => setProgramName(e.target.value)}
+                    disabled={!canControl}
+                    className="w-28 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                    placeholder="program"
+                  />
+                  <select
+                    data-testid="arm-program-step-kind"
+                    value={stepKind}
+                    onChange={(e) => setStepKind(e.target.value as EditableStepKind)}
+                    disabled={!canControl}
+                    className="rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                  >
+                    {EDITABLE_STEP_KINDS.map((kind) => (
+                      <option key={kind} value={kind}>
+                        {kind}
+                      </option>
+                    ))}
+                  </select>
+                  {(stepKind === "moveJ" || stepKind === "moveL") && (
+                    <select
+                      data-testid="arm-program-step-pose"
+                      value={stepPose}
+                      onChange={(e) => setStepPose(e.target.value)}
+                      disabled={!canControl || poses.length === 0}
+                      className="rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                    >
+                      <option value="">pose</option>
+                      {poses.map((savedPose) => (
+                        <option key={savedPose.name} value={savedPose.name}>
+                          {savedPose.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {(stepKind === "moveJ" || stepKind === "moveL" || stepKind === "wait") && (
+                    <input
+                      type="number"
+                      data-testid="arm-program-step-seconds"
+                      value={stepSeconds}
+                      onChange={(e) => setStepSeconds(e.target.value)}
+                      disabled={!canControl}
+                      className="w-16 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                      placeholder="s"
+                    />
+                  )}
+                  {stepKind === "grip" && (
+                    <input
+                      type="number"
+                      data-testid="arm-program-step-deg"
+                      value={stepGripDeg}
+                      onChange={(e) => setStepGripDeg(e.target.value)}
+                      disabled={!canControl}
+                      className="w-20 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                      placeholder="deg"
+                    />
+                  )}
+                  {stepKind === "tool" && (
+                    <select
+                      data-testid="arm-program-step-tool"
+                      value={stepToolOn ? "on" : "off"}
+                      onChange={(e) => setStepToolOn(e.target.value === "on")}
+                      disabled={!canControl}
+                      className="rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                    >
+                      <option value="on">tool on</option>
+                      <option value="off">tool off</option>
+                    </select>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="arm-program-add-step"
+                    disabled={!canControl || stagedStep === null}
+                    onClick={stageStep}
+                    className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
+                  >
+                    {editingStep === null ? "Add step" : "Update step"}
+                  </button>
+                  {editingStep !== null && (
+                    <button
+                      type="button"
+                      onClick={resetStepEditor}
+                      className="rounded bg-zinc-900 px-3 py-1 text-sm text-zinc-200 hover:bg-zinc-800"
+                    >
+                      Cancel edit
+                    </button>
+                  )}
+                </div>
+
+                {draftSteps.length === 0 && (
+                  <span className="text-xs text-zinc-500">No staged steps yet.</span>
+                )}
+                {draftSteps.map((step, index) => (
+                  <div
+                    key={`${index}-${step.kind}`}
+                    data-testid={`arm-program-step-row-${index}`}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded border border-zinc-800 px-2 py-1 text-xs text-zinc-200"
+                  >
+                    <span>{index + 1}. {describeStep(step)}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        data-testid={`arm-program-step-up-${index}`}
+                        disabled={index === 0}
+                        onClick={() => moveDraftStep(index, -1)}
+                        className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-100 hover:bg-zinc-800 disabled:opacity-40"
+                      >
+                        Up
+                      </button>
+                      <button
+                        type="button"
+                        data-testid={`arm-program-step-down-${index}`}
+                        disabled={index === draftSteps.length - 1}
+                        onClick={() => moveDraftStep(index, 1)}
+                        className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-100 hover:bg-zinc-800 disabled:opacity-40"
+                      >
+                        Down
+                      </button>
+                      {step.kind !== "loop" && (
+                        <button
+                          type="button"
+                          data-testid={`arm-program-step-edit-${index}`}
+                          onClick={() => editDraftStep(index)}
+                          className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-100 hover:bg-zinc-800"
+                        >
+                          Edit
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        data-testid={`arm-program-step-delete-${index}`}
+                        onClick={() => deleteDraftStep(index)}
+                        className="rounded bg-zinc-900 px-2 py-1 text-xs text-zinc-100 hover:bg-zinc-800"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  data-testid="arm-program-save"
+                  disabled={!canControl || !programName.trim() || draftSteps.length === 0}
+                  onClick={saveDraftProgram}
+                  className="self-start rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
+                >
+                  Save program
+                </button>
+
+                {programs.length === 0 && (
+                  <span className="text-xs text-zinc-500">No programs yet.</span>
+                )}
+                {programs.map((program) => (
+                  <div
+                    key={program.name}
+                    data-testid={`arm-program-row-${program.name}`}
+                    className="flex items-center justify-between rounded border border-zinc-800 px-2 py-1 text-xs text-zinc-200"
+                  >
+                    <span>
+                      {program.name} · {program.steps.length} step{program.steps.length === 1 ? "" : "s"}
+                    </span>
+                    <button
+                      type="button"
+                      data-testid={`arm-program-run-${program.name}`}
+                      disabled={!canControl || estopped}
+                      onClick={() => ep && void runProgram(ep, program.name)}
+                      className="rounded bg-sky-700 px-2 py-1 text-xs text-zinc-100 hover:bg-sky-600 disabled:opacity-40"
+                    >
+                      Run
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  data-testid="arm-program-stop"
+                  disabled={!canControl || programStatus?.state !== "running"}
+                  onClick={() => ep && void stopProgram(ep)}
+                  className="self-start rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
+                >
+                  Stop program
+                </button>
+              </div>
+            </div>
+          </div>
         </>
       )}
     </div>

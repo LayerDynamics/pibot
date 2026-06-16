@@ -32,6 +32,20 @@ _TELEMETRY = {
     "age_ms": 5.0,
 }
 
+_POSES = {
+    "poses": [
+        {"name": "home", "joints": {"0": 0.0, "1": 0.0}, "created": 1.0},
+        {"name": "ready", "joints": {"0": 10.0, "1": 5.0}, "created": 2.0},
+    ]
+}
+
+_PROGRAMS = {
+    "programs": [
+        {"name": "pick", "steps": [{"kind": "moveJ", "pose": "ready", "seconds": 1.0}]},
+        {"name": "stow", "steps": [{"kind": "moveJ", "pose": "home", "seconds": 1.0}]},
+    ]
+}
+
 
 class FakeArmClient:
     """Records every arm method call; every motion call acks."""
@@ -91,6 +105,26 @@ class FakeArmClient:
     async def arm_tool(self, on: bool) -> dict[str, Any]:
         self.calls.append(("tool", on))
         return {"type": "ack"}
+
+    async def arm_pose_save(self, name: str) -> dict[str, Any]:
+        self.calls.append(("pose-save", name))
+        return {"name": name, "joints": {"0": 10.0, "1": 20.0}, "created": 3.0}
+
+    async def arm_pose_list(self) -> dict[str, Any]:
+        self.calls.append(("pose-list",))
+        return dict(_POSES)
+
+    async def arm_program_list(self) -> dict[str, Any]:
+        self.calls.append(("program-list",))
+        return dict(_PROGRAMS)
+
+    async def arm_program_run(self, name: str) -> dict[str, Any]:
+        self.calls.append(("program-run", name))
+        return {"running": True, "name": name}
+
+    async def arm_program_stop(self) -> dict[str, Any]:
+        self.calls.append(("program-stop",))
+        return {"stopped": True}
 
 
 @pytest.fixture(autouse=True)
@@ -232,3 +266,27 @@ def test_arm_command_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("pibot.control.client.AgentClient", SlowClient)
     # --timeout is shorter than the client call -> a clean UsageError (exit 2), not a traceback.
     assert cli.main(["arm", "jog", "esp32", "0", "10", "--timeout", "0.01"]) == 2
+
+
+def test_arm_pose_save_dispatch() -> None:
+    assert cli.main(["arm", "pose-save", "esp32", "ready"]) == 0
+    assert _calls() == [("pose-save", "ready")]
+
+
+def test_arm_pose_list_json_output(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["arm", "pose-list", "esp32", "--json"]) == 0
+    assert _calls() == [("pose-list",)]
+    assert json.loads(capsys.readouterr().out) == _POSES
+
+
+def test_arm_program_run_and_stop_dispatch() -> None:
+    assert cli.main(["arm", "program-run", "esp32", "pick"]) == 0
+    assert _calls() == [("program-run", "pick")]
+    assert cli.main(["arm", "program-stop", "esp32"]) == 0
+    assert _calls() == [("program-stop",)]
+
+
+def test_arm_program_list_json_output(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["arm", "program-list", "esp32", "--json"]) == 0
+    assert _calls() == [("program-list",)]
+    assert json.loads(capsys.readouterr().out) == _PROGRAMS

@@ -121,6 +121,56 @@ class RobotLink:
             raise RuntimeError("not connected")
         return await self._client.arm_telemetry()
 
+    async def arm_pose_list(self) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_pose_list()
+
+    async def arm_pose_save(self, name: str, pose: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_pose_save(name, pose)
+
+    async def arm_pose_get(self, name: str) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_pose_get(name)
+
+    async def arm_pose_delete(self, name: str) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_pose_delete(name)
+
+    async def arm_program_list(self) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_program_list()
+
+    async def arm_program_save(self, program: dict[str, Any]) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_program_save(program)
+
+    async def arm_program_get(self, name: str) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_program_get(name)
+
+    async def arm_program_delete(self, name: str) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_program_delete(name)
+
+    async def arm_program_run(self, name: str) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_program_run(name)
+
+    async def arm_program_stop(self) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_program_stop()
+
     # ---- arm motion — delegated to AgentClient (never a second link) ---------------------
 
     async def arm_jog(self, joint: int, dps: float) -> dict[str, Any]:

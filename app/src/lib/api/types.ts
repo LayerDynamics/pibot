@@ -104,6 +104,8 @@ export interface ArmTelemetry {
   /** Forward-kinematics end-effector pose (position m, orientation rad), or null without the
    * `[arm-ik]` extra / no joint angles yet. */
   pose: { x: number; y: number; z: number; rx: number; ry: number; rz: number } | null;
+  /** Current or most recent teach/playback program status, or null when none has run yet. */
+  program: ArmProgramStatus | null;
   ts: number;
   /** Server-computed age of the cached sample in ms (null until the first sample). */
   age_ms: number | null;
@@ -113,4 +115,38 @@ export interface ArmTelemetry {
 export interface ArmReply {
   type: "ack" | "nak";
   reason?: string;
+}
+
+export interface ArmPose {
+  name: string;
+  joints: Record<string, number>;
+  created: number;
+  gripper?: number;
+  tool?: boolean;
+  cartesian?: { x: number; y: number; z: number; rx: number; ry: number; rz: number } | null;
+}
+
+export interface ArmProgramStep {
+  kind: "moveJ" | "moveL" | "grip" | "tool" | "wait" | "loop";
+  pose?: string;
+  seconds?: number;
+  deg?: number;
+  on?: boolean;
+  count?: number;
+  steps?: ArmProgramStep[];
+}
+
+export interface ArmProgram {
+  name: string;
+  created?: number;
+  steps: ArmProgramStep[];
+}
+
+export interface ArmProgramStatus {
+  name: string | null;
+  state: "running" | "completed" | "stopped" | "failed";
+  current_step: number | null;
+  total_steps: number;
+  current_kind: ArmProgramStep["kind"] | null;
+  message: string | null;
 }

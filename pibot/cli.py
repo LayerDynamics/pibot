@@ -488,6 +488,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dry_run(a_pose)
     a_pose.set_defaults(func=cmd_arm)
 
+    a_pose_save = arm_sub.add_parser("pose-save", parents=[g], help="record the current pose")
+    a_pose_save.add_argument("target")
+    a_pose_save.add_argument("name")
+    _add_dry_run(a_pose_save)
+    a_pose_save.set_defaults(func=cmd_arm)
+
+    a_pose_list = arm_sub.add_parser("pose-list", parents=[g], help="list recorded poses")
+    a_pose_list.add_argument("target")
+    a_pose_list.set_defaults(func=cmd_arm)
+
     a_grip = arm_sub.add_parser("grip", parents=[g], help="set the servo gripper angle (deg)")
     a_grip.add_argument("target")
     a_grip.add_argument("deg", type=float)
@@ -499,6 +509,25 @@ def build_parser() -> argparse.ArgumentParser:
     a_tool.add_argument("state", choices=["on", "off"])
     _add_dry_run(a_tool)
     a_tool.set_defaults(func=cmd_arm)
+
+    a_program_run = arm_sub.add_parser("program-run", parents=[g], help="run a saved program")
+    a_program_run.add_argument("target")
+    a_program_run.add_argument("name")
+    _add_dry_run(a_program_run)
+    a_program_run.set_defaults(func=cmd_arm)
+
+    a_program_list = arm_sub.add_parser("program-list", parents=[g], help="list saved programs")
+    a_program_list.add_argument("target")
+    a_program_list.set_defaults(func=cmd_arm)
+
+    a_program_stop = arm_sub.add_parser(
+        "program-stop",
+        parents=[g],
+        help="stop the running program",
+    )
+    a_program_stop.add_argument("target")
+    _add_dry_run(a_program_stop)
+    a_program_stop.set_defaults(func=cmd_arm)
 
     return parser
 
@@ -1192,6 +1221,15 @@ def _print_arm_telemetry(snap: dict) -> None:
         )
 
 
+def _print_named_items(label: str, items: list[dict]) -> None:
+    if not items:
+        print(f"no {label}")
+        return
+    print(f"{label}:")
+    for item in items:
+        print(f"  {item.get('name')}")
+
+
 def _arm_dry_run(action: str, args: argparse.Namespace) -> str:
     """Describe (and validate) the intended arm action without opening a transport."""
     if action == "jog":
@@ -1223,10 +1261,20 @@ def _arm_dry_run(action: str, args: argparse.Namespace) -> str:
         return "release the steppers"
     if action == "pose":
         return f"move to preset pose {args.name!r} over {args.seconds}s"
+    if action == "pose-save":
+        return f"record the current pose as {args.name!r}"
+    if action == "pose-list":
+        return "list recorded poses"
     if action == "grip":
         return f"set the gripper to {args.deg}°"
     if action == "tool":
         return f"turn the tool {args.state}"
+    if action == "program-run":
+        return f"run program {args.name!r}"
+    if action == "program-list":
+        return "list saved programs"
+    if action == "program-stop":
+        return "stop the running program"
     raise UsageError(f"unknown arm action {action!r}")
 
 
@@ -1278,10 +1326,20 @@ def cmd_arm(args: argparse.Namespace) -> int:
             return await client.arm_enable(False)
         if action == "pose":
             return await _arm_pose(client, args, NamedPoseSolver)
+        if action == "pose-save":
+            return await client.arm_pose_save(args.name)
+        if action == "pose-list":
+            return await client.arm_pose_list()
         if action == "grip":
             return await client.arm_grip(args.deg)
         if action == "tool":
             return await client.arm_tool(args.state == "on")
+        if action == "program-run":
+            return await client.arm_program_run(args.name)
+        if action == "program-list":
+            return await client.arm_program_list()
+        if action == "program-stop":
+            return await client.arm_program_stop()
         raise UsageError(f"unknown arm action {action!r}")
 
     async def _run() -> dict:
@@ -1308,9 +1366,19 @@ def cmd_arm(args: argparse.Namespace) -> int:
         print(json.dumps(result))
     elif action == "telemetry":
         _print_arm_telemetry(result)
+    elif action == "pose-list":
+        _print_named_items("poses", result.get("poses", []))
+    elif action == "program-list":
+        _print_named_items("programs", result.get("programs", []))
     elif action == "home" and "joints" in result:
         for entry in result["joints"]:
             _print_arm_reply(f"home J{entry['joint']}", entry["reply"])
+    elif action == "pose-save":
+        print(f"saved pose {result.get('name')}")
+    elif action == "program-run":
+        print(f"program {result.get('name')} running")
+    elif action == "program-stop":
+        print("program stopped")
     else:
         _print_arm_reply(action, result)
     return 0

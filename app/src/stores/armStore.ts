@@ -1,6 +1,13 @@
 import { create } from "zustand";
 
-import type { ArmReply, ArmTelemetry, McEndpoint } from "../lib/api/types";
+import type {
+  ArmPose,
+  ArmProgram,
+  ArmProgramStatus,
+  ArmReply,
+  ArmTelemetry,
+  McEndpoint,
+} from "../lib/api/types";
 
 // A sample older than this (server-computed age) means the arm drain loop has stalled.
 const STALE_THRESHOLD_MS = 1000;
@@ -13,12 +20,21 @@ interface ArmState {
   estopped: boolean;
   gripper: { deg: number; tool: boolean } | null;
   pose: { x: number; y: number; z: number; rx: number; ry: number; rz: number } | null;
+  programStatus: ArmProgramStatus | null;
   ageMs: number | null;
   stale: boolean;
+  poses: ArmPose[];
+  programs: ArmProgram[];
   /** True once a fetch has succeeded, so the screen can distinguish "no data yet" from "no arm". */
   loaded: boolean;
   error: string | null;
   fetch: (ep: McEndpoint) => Promise<void>;
+  fetchPoses: (ep: McEndpoint) => Promise<void>;
+  poseSave: (ep: McEndpoint, name: string) => Promise<void>;
+  fetchPrograms: (ep: McEndpoint) => Promise<void>;
+  saveProgram: (ep: McEndpoint, program: ArmProgram) => Promise<void>;
+  runProgram: (ep: McEndpoint, name: string) => Promise<void>;
+  stopProgram: (ep: McEndpoint) => Promise<void>;
   jog: (ep: McEndpoint, joint: number, dps: number) => Promise<void>;
   moveJoint: (ep: McEndpoint, joint: number, deg: number, speed?: number) => Promise<void>;
   home: (ep: McEndpoint, joint: number) => Promise<void>;
@@ -46,6 +62,28 @@ async function authed(ep: McEndpoint, path: string, init: RequestInit = {}): Pro
 }
 
 type Setter = (partial: Partial<ArmState>) => void;
+
+async function requestJson<T>(
+  set: Setter,
+  ep: McEndpoint,
+  path: string,
+  init: RequestInit = {},
+): Promise<T | null> {
+  try {
+    const r = await authed(ep, path, init);
+    if (!r.ok) {
+      const text = await r.text();
+      set({ error: `${path} failed (${r.status}): ${text}` });
+      return null;
+    }
+    const data = (await r.json()) as T;
+    set({ error: null });
+    return data;
+  } catch (e) {
+    set({ error: String(e) });
+    return null;
+  }
+}
 
 /** POST a motion intent to the MC proxy; surface a transport error or a host-gate nak. Returns
  * whether the command was accepted (HTTP ok AND not a nak), so callers can update optimistic
@@ -80,7 +118,23 @@ async function motion(
   }
 }
 
-const EMPTY = {
+const EMPTY: Pick<
+  ArmState,
+  | "enabled"
+  | "numJoints"
+  | "positions"
+  | "homed"
+  | "estopped"
+  | "gripper"
+  | "pose"
+  | "programStatus"
+  | "ageMs"
+  | "stale"
+  | "poses"
+  | "programs"
+  | "loaded"
+  | "error"
+> = {
   enabled: false,
   numJoints: 0,
   positions: {},
@@ -88,11 +142,14 @@ const EMPTY = {
   estopped: false,
   gripper: null,
   pose: null,
+  programStatus: null,
   ageMs: null,
   stale: false,
+  poses: [],
+  programs: [],
   loaded: false,
   error: null,
-} as const;
+};
 
 export const useArmStore = create<ArmState>((set) => ({
   ...EMPTY,
@@ -115,6 +172,7 @@ export const useArmStore = create<ArmState>((set) => ({
         estopped: data.estopped ?? false,
         gripper: data.gripper ?? null,
         pose: data.pose ?? null,
+        programStatus: data.program ?? null,
         ageMs: data.age_ms,
         stale,
         loaded: true,
@@ -123,6 +181,57 @@ export const useArmStore = create<ArmState>((set) => ({
     } catch (e) {
       set({ error: String(e) });
     }
+  },
+
+  fetchPoses: async (ep) => {
+    const data = await requestJson<{ poses: ArmPose[] }>(set, ep, "/api/arm/poses");
+    if (data) set({ poses: data.poses ?? [] });
+  },
+
+  poseSave: async (ep, name) => {
+    const data = await requestJson<ArmPose>(set, ep, "/api/arm/poses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (data) {
+      set((state) => ({
+        poses: [...state.poses.filter((pose) => pose.name !== data.name), data].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      }));
+    }
+  },
+
+  fetchPrograms: async (ep) => {
+    const data = await requestJson<{ programs: ArmProgram[] }>(set, ep, "/api/arm/programs");
+    if (data) set({ programs: data.programs ?? [] });
+  },
+
+  saveProgram: async (ep, program) => {
+    const data = await requestJson<ArmProgram>(set, ep, "/api/arm/programs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(program),
+    });
+    if (data) {
+      set((state) => ({
+        programs: [
+          ...state.programs.filter((existing) => existing.name !== data.name),
+          data,
+        ].sort((a, b) => a.name.localeCompare(b.name)),
+      }));
+    }
+  },
+
+  runProgram: async (ep, name) => {
+    await requestJson(set, ep, `/api/arm/programs/${encodeURIComponent(name)}/run`, {
+      method: "POST",
+    });
+  },
+
+  stopProgram: async (ep) => {
+    await requestJson(set, ep, "/api/arm/programs/stop", { method: "POST" });
   },
 
   jog: async (ep, joint, dps) => {
