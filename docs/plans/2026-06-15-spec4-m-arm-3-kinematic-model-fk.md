@@ -6,8 +6,8 @@
 > `sizing.emit_urdf` / `--emit-urdf` (one source of truth), and FK pose in `/arm/telemetry` + `pibot
 > arm telemetry` + the Arm screen (absent without `[arm-ik]`, never a crash). `scripts/check.sh` +
 > desktop gate green. The FK tests are `importorskip("ikpy")`-guarded; the CI gate installs the
-> `[arm-ik]` extra so they **run in CI** (the import-guard tests still enforce the numpy-free arm
-> core). Dimensions are sizing-default `⬜ TUNE` placeholders until the built arm is measured.
+> `[arm-ik]` extra so they **run in CI**. The import-guard tests still enforce the numpy-free arm
+> core. Dimensions are sizing-default `⬜ TUNE` placeholders until the built arm is measured.
 >
 > **For Claude:** execute with `lore:execute`. **TDD mandatory** (failing test first → implement →
 > `scripts/check.sh` green). Shared decisions/discipline/invariants: see the
