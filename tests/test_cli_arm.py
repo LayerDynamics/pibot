@@ -82,6 +82,14 @@ class FakeArmClient:
         self.calls.append(("enable", on))
         return {"type": "ack"}
 
+    async def arm_grip(self, deg: float) -> dict[str, Any]:
+        self.calls.append(("grip", deg))
+        return {"type": "ack"}
+
+    async def arm_tool(self, on: bool) -> dict[str, Any]:
+        self.calls.append(("tool", on))
+        return {"type": "ack"}
+
 
 @pytest.fixture(autouse=True)
 def _wire(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,6 +164,23 @@ def test_arm_pose_zero_resolves_to_all_zero_targets() -> None:
 def test_arm_pose_unknown_name_errors() -> None:
     # Only the geometry-free 'zero' preset ships in M-ARM-1; others must error honestly.
     assert cli.main(["arm", "pose", "esp32", "ready"]) == 2
+
+
+def test_arm_grip_dispatch() -> None:
+    assert cli.main(["arm", "grip", "esp32", "40"]) == 0
+    assert _calls() == [("grip", 40.0)]
+
+
+def test_arm_tool_on_and_off() -> None:
+    assert cli.main(["arm", "tool", "esp32", "on"]) == 0
+    assert _calls() == [("tool", True)]
+    assert cli.main(["arm", "tool", "esp32", "off"]) == 0
+    assert _calls() == [("tool", False)]
+
+
+def test_arm_tool_rejects_bad_state() -> None:
+    with pytest.raises(SystemExit):  # argparse rejects an out-of-choices value
+        cli.main(["arm", "tool", "esp32", "maybe"])
 
 
 def test_arm_telemetry_json_output_shape(capsys: pytest.CaptureFixture[str]) -> None:

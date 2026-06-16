@@ -17,6 +17,7 @@ function seed(over: Partial<ReturnType<typeof useArmStore.getState>> = {}): void
     positions: { "0": 10, "1": 20 },
     homed: { "0": true, "1": false },
     estopped: false,
+    gripper: { deg: 25, tool: false },
     ageMs: 50,
     stale: false,
     loaded: true,
@@ -94,5 +95,31 @@ describe("Arm screen controls", () => {
     expect(jog).toHaveBeenLastCalledWith(EP, 1, -15);
     fireEvent.pointerLeave(minus);
     expect(jog).toHaveBeenLastCalledWith(EP, 1, 0);
+  });
+
+  it("renders the gripper control and drives grip/tool actions", () => {
+    const grip = vi.fn().mockResolvedValue(undefined);
+    const tool = vi.fn().mockResolvedValue(undefined);
+    seed({ grip, tool, gripper: { deg: 25, tool: true } });
+    render(<Arm ep={EP} />);
+
+    // Readout reflects the telemetry gripper state.
+    expect(screen.getByTestId("arm-gripper-readout")).toHaveTextContent("25° · tool on");
+
+    fireEvent.click(screen.getByTestId("arm-grip-open"));
+    expect(grip).toHaveBeenLastCalledWith(EP, 0);
+    fireEvent.click(screen.getByTestId("arm-grip-close"));
+    expect(grip).toHaveBeenLastCalledWith(EP, 180);
+    // Tool toggles the opposite of the current (on) state.
+    fireEvent.click(screen.getByTestId("arm-tool-toggle"));
+    expect(tool).toHaveBeenLastCalledWith(EP, false);
+  });
+
+  it("disables gripper controls while e-stop is latched", () => {
+    seed({ estopped: true });
+    render(<Arm ep={EP} />);
+
+    expect(screen.getByTestId("arm-grip-open")).toBeDisabled();
+    expect(screen.getByTestId("arm-tool-toggle")).toBeDisabled();
   });
 });

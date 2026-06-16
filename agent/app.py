@@ -362,12 +362,14 @@ async def handle_arm_telemetry(request: web.Request) -> web.Response:
                 "positions": {},
                 "homed": {},
                 "estopped": False,
+                "gripper": None,
                 "ts": 0.0,
                 "age_ms": None,
             }
         )
     ts = state.arm_positions_ts
     age_ms = round((time.time() - ts) * 1000, 1) if ts else None
+    grip = state.arm.gripper()
     return web.json_response(
         {
             "ok": True,
@@ -379,6 +381,8 @@ async def handle_arm_telemetry(request: web.Request) -> web.Response:
             # reflect real host state (not a guess) across reconnects and multiple clients.
             "homed": {str(jid): jid in state.arm_homed for jid in range(state.arm.num_joints)},
             "estopped": state.arm_estopped,
+            # End-effector state (M-ARM-2), drained from the gripper board's `grip` frame.
+            "gripper": {"deg": grip.deg, "tool": grip.tool} if grip is not None else None,
             "ts": state.arm_positions_ts,
             "age_ms": age_ms,
         }
@@ -434,6 +438,19 @@ async def _arm_command(state: AgentState, frame: dict[str, Any]) -> dict[str, An
             return _ARM_ACK
         if cmd == "enable":
             await asyncio.to_thread(arm.enable, bool(frame.get("on", True)))
+            return _ARM_ACK
+        # --- end-effector (M-ARM-2) — gate-gated (refused while e-stop latched) ---
+        if cmd == "grip":
+            res = gate.grip(_as_float(frame["deg"]), estopped=state.arm_estopped)
+            if not res.ok:
+                return _arm_nak(res.reason)
+            await asyncio.to_thread(arm.grip, res.args["deg"])
+            return _ARM_ACK
+        if cmd == "tool":
+            res = gate.tool(estopped=state.arm_estopped)
+            if not res.ok:
+                return _arm_nak(res.reason)
+            await asyncio.to_thread(arm.tool, bool(frame.get("on", True)))
             return _ARM_ACK
         # --- per-joint motion (gate-validated + clamped) ---
         if cmd == "jvel":

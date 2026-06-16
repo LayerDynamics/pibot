@@ -119,13 +119,28 @@ def test_robot_link_arm_motion_delegates_to_client() -> None:
                 assert (await link.arm_clear_estop())["type"] == "ack"
                 assert (await link.arm_enable(True))["type"] == "ack"
                 assert (await link.arm_move_joints({0: 5.0, 1: 6.0}, 2.0))["type"] == "ack"
+                assert (await link.arm_grip(40.0))["type"] == "ack"
+                assert (await link.arm_tool(True))["type"] == "ack"
             finally:
                 await link.disconnect()
         cmds = [f["cmd"] for f in received]
-        assert cmds == ["jvel", "jmove", "jpos", "home", "estop", "clear_estop", "enable", "move"]
+        assert cmds == [
+            "jvel",
+            "jmove",
+            "jpos",
+            "home",
+            "estop",
+            "clear_estop",
+            "enable",
+            "move",
+            "grip",
+            "tool",
+        ]
         assert received[0] == {"cmd": "jvel", "joint": 2, "dps": 30.0}
         assert received[1]["dps"] == 10.0  # arm_move_joint(speed=) -> jmove
         assert received[7]["targets"] == {"0": 5.0, "1": 6.0}  # JSON stringifies int keys
+        assert received[8] == {"cmd": "grip", "deg": 40.0}
+        assert received[9] == {"cmd": "tool", "on": True}
 
     _run(body())
 
@@ -141,6 +156,8 @@ def test_robot_link_arm_motion_raises_when_not_connected() -> None:
             link.arm_estop(),
             link.arm_clear_estop(),
             link.arm_enable(True),
+            link.arm_grip(10.0),
+            link.arm_tool(True),
         ]
         for coro in calls:
             with pytest.raises(RuntimeError):
@@ -178,13 +195,28 @@ def test_arm_motion_routes_proxy_to_robot_link() -> None:
                 await post("/api/arm/estop", {})
                 await post("/api/arm/clear_estop", {})
                 await post("/api/arm/enable", {"on": False})
+                await post("/api/arm/grip", {"deg": 33.0})
+                await post("/api/arm/tool", {"on": True})
 
         cmds = [f["cmd"] for f in received]
-        assert cmds == ["jvel", "jpos", "jmove", "move", "home", "estop", "clear_estop", "enable"]
+        assert cmds == [
+            "jvel",
+            "jpos",
+            "jmove",
+            "move",
+            "home",
+            "estop",
+            "clear_estop",
+            "enable",
+            "grip",
+            "tool",
+        ]
         assert received[0] == {"cmd": "jvel", "joint": 1, "dps": 20.0}
         assert received[2]["cmd"] == "jmove" and received[2]["dps"] == 5.0
         assert received[3]["targets"] == {"0": 10.0, "1": 20.0}
         assert received[7] == {"cmd": "enable", "on": False}
+        assert received[8] == {"cmd": "grip", "deg": 33.0}
+        assert received[9] == {"cmd": "tool", "on": True}
 
     _run(body())
 
@@ -202,6 +234,8 @@ def test_arm_motion_routes_503_when_not_connected() -> None:
                 "/api/arm/estop",
                 "/api/arm/clear_estop",
                 "/api/arm/enable",
+                "/api/arm/grip",
+                "/api/arm/tool",
             ):
                 r = await c.post(path, json={}, headers=_AUTH)
                 assert r.status == 503, path

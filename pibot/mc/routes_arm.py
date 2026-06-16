@@ -141,6 +141,33 @@ async def handle_arm_enable(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def handle_arm_grip(request: web.Request) -> web.Response:
+    """POST /api/arm/grip — drive the servo gripper to an absolute angle: ``{deg}``."""
+    link = _require_link(request)
+    data = await _body(request)
+    try:
+        deg = float(data["deg"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise web.HTTPBadRequest(text=f"grip needs deg: {exc}") from exc
+    try:
+        result = await link.arm_grip(deg)
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm grip failed: {exc}") from exc
+    return web.json_response(result)
+
+
+async def handle_arm_tool(request: web.Request) -> web.Response:
+    """POST /api/arm/tool — energize/release the digital-output tool: ``{on}``."""
+    link = _require_link(request)
+    data = await _body(request)
+    on = bool(data.get("on", True))
+    try:
+        result = await link.arm_tool(on)
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm tool failed: {exc}") from exc
+    return web.json_response(result)
+
+
 def add_arm_routes(app: web.Application) -> None:
     app.router.add_get("/api/arm/telemetry", handle_get_arm_telemetry)
     app.router.add_post("/api/arm/jog", handle_arm_jog)
@@ -150,3 +177,5 @@ def add_arm_routes(app: web.Application) -> None:
     app.router.add_post("/api/arm/estop", handle_arm_estop)
     app.router.add_post("/api/arm/clear_estop", handle_arm_clear_estop)
     app.router.add_post("/api/arm/enable", handle_arm_enable)
+    app.router.add_post("/api/arm/grip", handle_arm_grip)
+    app.router.add_post("/api/arm/tool", handle_arm_tool)

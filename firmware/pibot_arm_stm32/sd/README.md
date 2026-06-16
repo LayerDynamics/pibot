@@ -78,6 +78,17 @@ pibot --help                         # (host CLI; or any 115200 8N1 terminal)
 > is still **example values**. Tune it to your real arm **before** any `home`/`jvel`/`jmove`,
 > or a joint can drive into a hard stop. `ping`/telemetry is always safe; motion is not until
 > the config matches the hardware.
+>
+> ⚠️ **Gripper (M-ARM-2):** ships **opt-in** — `HAS_GRIPPER`/`HAS_TOOL` default `false`, so re-flashing
+> an arm without a gripper never attaches the servo or claims the timer the Servo lib uses (which
+> could disturb AccelStepper step timing). The end-effector config block (`GRIP_PIN`/`GRIP_MIN_DEG`/
+> `GRIP_MAX_DEG`, `TOOL_PIN`) is `⬜ TUNE` example values. The E0 servo has **no endstop**, so the
+> firmware's angle clamp + your conservative `GRIP_MIN/MAX` are the only over-travel guard — set
+> `GRIP_PIN` to the real servo signal pin and **bench-verify the servo's travel before closing on
+> anything**. The new verbs are `grip,<deg>` and `tool,<0|1>` (both refused while e-stop is latched),
+> and the board adds a `grip` telemetry frame. This is a firmware change, so **re-flash with a fresh
+> unique `.bin` name** (per the rule above) and re-verify e-stop + the 300 ms watchdog still hold
+> after flashing.
 
 ## If the board ignores the card
 

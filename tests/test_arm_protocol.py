@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from pibot.control.echo import EchoResponder
-from pibot.protocol.codec import Message, MessageType, decode, encode
+from pibot.protocol.codec import DecodeError, Message, MessageType, decode, encode
 
 ARM_CMDS: list[tuple[str, dict[str, float]]] = [
     ("jpos", {"id": 1, "deg": 45.0}),
@@ -21,6 +21,9 @@ ARM_CMDS: list[tuple[str, dict[str, float]]] = [
     ("jstop", {"id": 2}),
     ("home", {"id": 0}),
     ("enable", {"on": 1}),
+    # M-ARM-2 gripper / end-effector verbs (mirrored in firmware/pibot_arm_stm32).
+    ("grip", {"deg": 35.0}),
+    ("tool", {"on": 1}),
 ]
 
 
@@ -46,3 +49,20 @@ def test_arm_command_acked_by_echo_stand(encoding: str, name: str, args: dict[st
     ack = decode(frames[0], encoding)
     assert ack.type is MessageType.ACK
     assert ack.seq == 9
+
+
+@pytest.mark.parametrize("encoding", ["ascii", "json"])
+def test_grip_telemetry_roundtrip(encoding: str) -> None:
+    """The gripper telemetry frame (angle + tool state) round-trips on both encodings."""
+    msg = Message(MessageType.TELEMETRY, 3, "grip", {"deg": 42.5, "tool": 1.0})
+    out = decode(encode(msg, encoding), encoding)
+    assert out.type is MessageType.TELEMETRY
+    assert out.name == "grip"
+    assert out.args["deg"] == 42.5
+    assert out.args["tool"] == 1.0
+
+
+def test_bad_grip_frame_raises_decode_error() -> None:
+    """A corrupt gripper frame is rejected with DecodeError, never a crash."""
+    with pytest.raises(DecodeError):
+        decode(b">7,grip,35*00\n", "ascii")  # wrong CRC

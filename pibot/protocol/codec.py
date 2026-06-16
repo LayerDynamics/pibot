@@ -42,6 +42,10 @@ COMMAND_ARGS: dict[str, list[str]] = {
     "jstop": ["id"],
     "home": ["id"],
     "enable": ["on"],
+    # Robot-arm end-effector (M-ARM-2) — servo gripper on the spare E0 channel + an optional
+    # digital-output tool (relay/pneumatic). `grip` is an absolute servo angle (deg); `tool` a flag.
+    "grip": ["deg"],
+    "tool": ["on"],
 }
 
 TELEMETRY_FIELDS: dict[str, list[str]] = {
@@ -52,6 +56,8 @@ TELEMETRY_FIELDS: dict[str, list[str]] = {
     "imu": ["ax", "ay", "az", "gx", "gy", "gz"],
     "range": ["mm"],
     "event": ["code"],
+    # Gripper telemetry (M-ARM-2): servo angle (deg) + tool digital-output state (0/1).
+    "grip": ["deg", "tool"],
 }
 
 

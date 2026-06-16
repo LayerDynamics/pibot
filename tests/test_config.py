@@ -118,6 +118,13 @@ def test_arm_config_defaults(isolated_config_dir: str) -> None:
     assert cfg.arm_joints_per_board == []
     assert cfg.arm_baud == 115200
     assert cfg.arm_encoding == "ascii"
+    assert cfg.arm_gripper_board == 0
+
+
+def test_arm_gripper_board_override(isolated_config_dir: str) -> None:
+    path = Path(isolated_config_dir) / "config.toml"
+    tomlio.dump({"arm_gripper_board": 1}, path)
+    assert load_config().arm_gripper_board == 1
 
 
 def test_arm_config_list_overrides(isolated_config_dir: str) -> None:

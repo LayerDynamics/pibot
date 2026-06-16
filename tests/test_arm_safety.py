@@ -173,3 +173,29 @@ def test_move_rejected_under_estop() -> None:
 def test_move_rejected_for_nonpositive_seconds() -> None:
     r = _gate().move({0: 10.0}, current={0: 0.0}, seconds=0.0, estopped=False, homed={0})
     assert not r.ok
+
+
+# ---- gripper / tool (M-ARM-2) — refused under e-stop; servo angle clamped ------------------
+
+
+def test_grip_accepts_and_clamps_to_servo_range() -> None:
+    r = _gate().grip(45.0, estopped=False)
+    assert r.ok
+    assert r.args["deg"] == 45.0
+    over = _gate().grip(999.0, estopped=False)
+    assert over.args["deg"] == 180.0  # clamped to the servo's physical max
+    under = _gate().grip(-50.0, estopped=False)
+    assert under.args["deg"] == 0.0
+
+
+def test_grip_rejected_under_estop() -> None:
+    r = _gate().grip(30.0, estopped=True)
+    assert not r.ok
+    assert "estop" in r.reason
+
+
+def test_tool_accepted_unless_estopped() -> None:
+    assert _gate().tool(estopped=False).ok
+    refused = _gate().tool(estopped=True)
+    assert not refused.ok
+    assert "estop" in refused.reason

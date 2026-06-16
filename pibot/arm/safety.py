@@ -27,6 +27,11 @@ DEFAULT_MIN_DEG = -180.0
 DEFAULT_MAX_DEG = 180.0
 DEFAULT_MAX_DPS = 90.0
 
+# Servo gripper physical range (M-ARM-2). The host gate clamps to this coarse bound; the firmware
+# further clamps to the configured per-gripper ``[GRIP_MIN_DEG, GRIP_MAX_DEG]``.
+SERVO_MIN_DEG = 0.0
+SERVO_MAX_DEG = 180.0
+
 
 @dataclass(frozen=True)
 class JointLimit:
@@ -118,6 +123,19 @@ class ArmGate:
         bad = self._check_joint(joint)
         if bad is not None:
             return GateResult(False, bad)
+        return GateResult(True)
+
+    def grip(self, deg: float, *, estopped: bool) -> GateResult:
+        """Servo gripper: refused while e-stop is latched; the angle is clamped to the servo's
+        physical range (the firmware further clamps to the configured gripper limits)."""
+        if estopped:
+            return GateResult(False, "estop latched")
+        return GateResult(True, args={"deg": _bound(float(deg), SERVO_MIN_DEG, SERVO_MAX_DEG)})
+
+    def tool(self, *, estopped: bool) -> GateResult:
+        """Digital-output tool (relay/pneumatic): refused while e-stop is latched."""
+        if estopped:
+            return GateResult(False, "estop latched")
         return GateResult(True)
 
     def home(self, joint: int, *, estopped: bool) -> GateResult:

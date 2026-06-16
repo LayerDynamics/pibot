@@ -11,6 +11,7 @@ interface ArmState {
   positions: Record<string, number>;
   homed: Record<string, boolean>;
   estopped: boolean;
+  gripper: { deg: number; tool: boolean } | null;
   ageMs: number | null;
   stale: boolean;
   /** True once a fetch has succeeded, so the screen can distinguish "no data yet" from "no arm". */
@@ -23,6 +24,8 @@ interface ArmState {
   estop: (ep: McEndpoint) => Promise<void>;
   clearEstop: (ep: McEndpoint) => Promise<void>;
   enable: (ep: McEndpoint, on: boolean) => Promise<void>;
+  grip: (ep: McEndpoint, deg: number) => Promise<void>;
+  tool: (ep: McEndpoint, on: boolean) => Promise<void>;
   reset: () => void;
 }
 
@@ -74,6 +77,7 @@ const EMPTY = {
   positions: {},
   homed: {},
   estopped: false,
+  gripper: null,
   ageMs: null,
   stale: false,
   loaded: false,
@@ -99,6 +103,7 @@ export const useArmStore = create<ArmState>((set) => ({
         positions: data.positions ?? {},
         homed: data.homed ?? {},
         estopped: data.estopped ?? false,
+        gripper: data.gripper ?? null,
         ageMs: data.age_ms,
         stale,
         loaded: true,
@@ -133,6 +138,14 @@ export const useArmStore = create<ArmState>((set) => ({
 
   enable: async (ep, on) => {
     await motion(set, ep, "/api/arm/enable", { on });
+  },
+
+  grip: async (ep, deg) => {
+    await motion(set, ep, "/api/arm/grip", { deg });
+  },
+
+  tool: async (ep, on) => {
+    await motion(set, ep, "/api/arm/tool", { on });
   },
 
   reset: () => set({ ...EMPTY }),

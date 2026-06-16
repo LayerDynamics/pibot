@@ -21,11 +21,15 @@
 //   jstop,<id>        stop joint id, hold position
 //   home,<id>         home joint id against its endstop
 //   estop             latch e-stop · set,<_>,0  clear e-stop · enable,<0|1>  energize/release
+//   grip,<deg>        set the servo gripper angle (deg, angle-clamped); refused under e-stop
+//   tool,<0|1>        energize/release the optional digital-output tool; refused under e-stop
 //   ping              ack + a telemetry frame
-// Telemetry: `<SEQ,joints,d0,d1,..*CC` (joint angles, deg) at TELEMETRY_MS.
+// Telemetry at TELEMETRY_MS: `<SEQ,joints,d0,d1,..*CC` (joint angles, deg) and, when a gripper is
+//   present, `<SEQ,grip,<deg>,<tool>*CC` (servo angle + tool state).
 
 #include "protocol.h"
 #include <AccelStepper.h>
+#include <Servo.h>
 #include <math.h>
 
 // ---- Host link ---------------------------------------------------------------------------------
@@ -62,6 +66,22 @@ static const JointCfg JCFG[] = {
 };
 static const uint8_t NJ = sizeof(JCFG) / sizeof(JCFG[0]);
 
+// ---- Gripper / end-effector (M-ARM-2): a servo on the spare E0 channel (PWM, no endstop) plus an
+//      optional digital-output tool (relay/pneumatic). ⬜ TUNE EVERY value below to YOUR hardware and
+//      bench-verify the servo's travel BEFORE closing on anything — E0 has no endstop, so these
+//      angle clamps + conservative defaults are the only over-travel guard (SPEC R6).
+//      OPT-IN: defaults false so re-flashing an arm WITHOUT a gripper never attaches the servo or
+//      claims a hardware timer (the Servo lib does) that could disturb AccelStepper step timing.
+//      Set true only once the servo is wired and GRIP_PIN is confirmed; then bench-verify travel.
+static const bool    HAS_GRIPPER   = false;
+static const uint8_t GRIP_PIN      = PA8;    // ⬜ TUNE — servo signal wire (e.g. the E0 step pin); a
+                                             //          clean PWM-capable GPIO. CONFIRM against your board.
+static const float   GRIP_MIN_DEG  = 0.f;    // ⬜ TUNE — fully-open servo angle
+static const float   GRIP_MAX_DEG  = 90.f;   // ⬜ TUNE — fully-closed servo angle (keep conservative)
+static const float   GRIP_INIT_DEG = 0.f;    // ⬜ TUNE — power-on angle (default: open)
+static const bool    HAS_TOOL      = false;  // ⬜ TUNE — set true once a relay/solenoid tool is wired
+static const uint8_t TOOL_PIN      = PB0;    // ⬜ TUNE — digital-output pin driving the tool relay
+
 static const unsigned long WATCHDOG_MS = 300;
 static const unsigned long TELEMETRY_MS = 100;
 static const float HOME_BACKOFF_DEG = 5.0f;  // back off this far from the endstop after triggering
@@ -75,6 +95,11 @@ static AccelStepper steppers[NJ];
 static JMode  jmode[NJ];
 static bool   jhomed[NJ];
 static long   home_start_steps[NJ];  // currentPosition() when a home seek began (travel guard)
+
+// Gripper / tool actuator state (separate from the homed joint loop — not a homed joint).
+static Servo  gripper;
+static float  grip_deg = GRIP_INIT_DEG;
+static bool   tool_on = false;
 
 static bool estopped = false;
 static bool enabled = true;
@@ -234,6 +259,11 @@ static void send_state() {
   char out[96];
   pibot_build_telemetry(tlm_seq++, "joints", deg, NJ, out, sizeof(out));
   send_line(out);
+  if (HAS_GRIPPER) {  // separate `grip` frame: servo angle + tool state (does not pollute `joints`)
+    float g[2] = { grip_deg, tool_on ? 1.f : 0.f };
+    pibot_build_telemetry(tlm_seq++, "grip", g, 2, out, sizeof(out));
+    send_line(out);
+  }
 }
 
 static bool is_motion(const char *n) {
@@ -264,6 +294,30 @@ static void dispatch(const PibotCommand &cmd) {
   }
   if (strcmp(cmd.name, "enable") == 0) {
     drivers_enable(cmd.argc >= 1 && (int)cmd.args[0] != 0);
+    pibot_build_ack(cmd.seq, out, sizeof(out));
+    send_line(out);
+    return;
+  }
+  // ---- end-effector (M-ARM-2). Both actuators are refused while e-stop is latched (a gripper or
+  //      relay must not keep actuating during an e-stop); this does not alter the joint safety above.
+  if (strcmp(cmd.name, "grip") == 0) {
+    if (estopped) { pibot_build_nak(cmd.seq, "estop", out, sizeof(out)); send_line(out); return; }
+    if (!HAS_GRIPPER) { pibot_build_nak(cmd.seq, "nogrip", out, sizeof(out)); send_line(out); return; }
+    if (cmd.argc >= 1) {
+      grip_deg = clampf(cmd.args[0], GRIP_MIN_DEG, GRIP_MAX_DEG);  // angle-clamp: the only over-travel guard
+      gripper.write((int)lroundf(grip_deg));
+    }
+    pibot_build_ack(cmd.seq, out, sizeof(out));
+    send_line(out);
+    return;
+  }
+  if (strcmp(cmd.name, "tool") == 0) {
+    if (estopped) { pibot_build_nak(cmd.seq, "estop", out, sizeof(out)); send_line(out); return; }
+    if (!HAS_TOOL) { pibot_build_nak(cmd.seq, "notool", out, sizeof(out)); send_line(out); return; }
+    if (cmd.argc >= 1) {
+      tool_on = ((int)cmd.args[0] != 0);
+      digitalWrite(TOOL_PIN, tool_on ? HIGH : LOW);
+    }
     pibot_build_ack(cmd.seq, out, sizeof(out));
     send_line(out);
     return;
@@ -343,6 +397,14 @@ void setup() {
     steppers[j].setCurrentPosition(0);  // position is unknown until homed
     jmode[j] = MODE_IDLE;
     jhomed[j] = false;
+  }
+  if (HAS_GRIPPER) {
+    gripper.attach(GRIP_PIN);
+    gripper.write((int)lroundf(GRIP_INIT_DEG));
+  }
+  if (HAS_TOOL) {
+    pinMode(TOOL_PIN, OUTPUT);
+    digitalWrite(TOOL_PIN, LOW);  // tool de-energized at boot
   }
   last_cmd_ms = millis();
 }

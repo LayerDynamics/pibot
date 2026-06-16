@@ -59,6 +59,8 @@ STATE_CHANGING = {
     "arm enable",
     "arm disable",
     "arm pose",
+    "arm grip",
+    "arm tool",
 }
 # META = local-only / reversible operations deliberately exempt from --dry-run:
 # inventory edits write local metadata (trivially reversible), firmware build compiles

@@ -34,6 +34,14 @@ class JointRef:
     channel: int
 
 
+@dataclass(frozen=True)
+class GripperState:
+    """The end-effector's last reported state: servo angle (deg) + tool digital-out on/off."""
+
+    deg: float
+    tool: bool
+
+
 def linear_joint_map(per_board: list[int]) -> list[JointRef]:
     """Build a sequential logical→physical map: ``per_board=[3, 3]`` → J0..J2 on board 0, J3..J5 on
     board 1. Matches the plan's 3+3 split across two 4.2.2 boards."""
@@ -53,13 +61,19 @@ class ArmManager:
         joints: list[JointRef],
         *,
         encoding: str = "ascii",
+        gripper_board: int = 0,
     ) -> None:
         if any(j.board >= len(transports) for j in joints):
             raise ValueError("a joint references a board with no transport")
+        if not 0 <= gripper_board < len(transports):
+            raise ValueError("gripper_board references a board with no transport")
         self._t = transports
         self._joints = joints
         self._encoding = encoding
         self._seq = [SeqTracker() for _ in transports]  # independent sequence per board
+        # The end-effector (servo gripper + optional tool) lives on one board's spare E0 channel.
+        self._gripper_board = gripper_board
+        self._gripper: GripperState | None = None
 
     @property
     def num_joints(self) -> int:
@@ -134,6 +148,24 @@ class ArmManager:
         """Home one joint against its endstop."""
         self._joint_send(joint, "home", {})
 
+    # ---- end-effector (M-ARM-2) — servo gripper + optional tool on the gripper board ------------
+    @property
+    def gripper_board(self) -> int:
+        """The board that owns the end-effector (its spare E0 channel)."""
+        return self._gripper_board
+
+    def grip(self, deg: float) -> None:
+        """Drive the servo gripper to an absolute angle (deg); the board angle-clamps it."""
+        self._send(self._gripper_board, "grip", {"deg": float(deg)})
+
+    def tool(self, on: bool) -> None:
+        """Energize (``True``) or release (``False``) the optional digital-output tool."""
+        self._send(self._gripper_board, "tool", {"on": 1.0 if on else 0.0})
+
+    def gripper(self) -> GripperState | None:
+        """The end-effector's last state drained from telemetry, or ``None`` until one arrives."""
+        return self._gripper
+
     # ---- whole-arm safety (broadcast to every board) ----------------------------------------
     def estop(self) -> None:
         """Latch e-stop on **every** board (all motion halts, refused until cleared)."""
@@ -169,6 +201,12 @@ class ArmManager:
                     continue
                 if msg.type is MessageType.TELEMETRY and msg.name == "joints":
                     board_pos[board] = [float(v) for v in msg.args.values()]
+                elif msg.type is MessageType.TELEMETRY and msg.name == "grip":
+                    # The gripper board also streams a `grip` frame (angle + tool state); capture
+                    # the latest so the drain stays the single reader of every board's telemetry.
+                    self._gripper = GripperState(
+                        deg=float(msg.args["deg"]), tool=bool(msg.args.get("tool", 0.0))
+                    )
                 frame = transport.recv(0.0)  # drain remaining buffered frames
 
         out: dict[int, float] = {}

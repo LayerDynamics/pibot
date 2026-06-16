@@ -81,6 +81,8 @@ pibot arm move pibot 1 45              # move joint 1 to 45° at its default spe
 pibot arm move pibot 1 45 --speed 20   # …at 20 deg/s
 pibot arm move-all pibot 0=90,1=-45 --seconds 2   # synchronized arrival in 2 s
 pibot arm pose pibot zero              # the built-in all-joints-zero preset
+pibot arm grip pibot 30                # servo gripper to 30° (angle-clamped on the board)
+pibot arm tool pibot on                # energize the optional digital-out tool (off to release)
 pibot arm estop pibot                  # latch the arm e-stop
 pibot arm clear pibot                  # clear the latch
 pibot arm enable pibot                 # energize / pibot arm disable pibot to release

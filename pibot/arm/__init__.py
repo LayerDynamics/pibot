@@ -6,7 +6,7 @@ joint commands to the right board and aggregates telemetry; kinematics/IK layer 
 """
 
 from pibot.arm.kinematics import DirectSolver, JointSolver, NamedPoseSolver
-from pibot.arm.manager import ArmManager, JointRef, linear_joint_map
+from pibot.arm.manager import ArmManager, GripperState, JointRef, linear_joint_map
 from pibot.arm.safety import ArmGate, GateResult, JointLimit
 
 __all__ = [
@@ -14,6 +14,7 @@ __all__ = [
     "ArmManager",
     "DirectSolver",
     "GateResult",
+    "GripperState",
     "JointLimit",
     "JointRef",
     "JointSolver",
