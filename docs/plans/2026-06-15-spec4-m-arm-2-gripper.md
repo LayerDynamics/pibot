@@ -10,6 +10,9 @@
 > bench-verify servo travel + that e-stop/watchdog still hold. **Both actuators ship opt-in**
 > (`HAS_GRIPPER=false`, `HAS_TOOL=false`) so re-flashing a gripper-less arm never attaches the
 > servo/claims a timer — set them `true` once the servo/relay is wired and the pin confirmed.
+> The remaining bench-signoff work is now tracked in
+> [`M-ARM-7`](./2026-06-16-spec4-m-arm-7-hardware-validation-release-hardening.md) and
+> [`docs/hardware-arm-signoff.md`](../hardware-arm-signoff.md).
 >
 > **For Claude:** execute with `lore:execute`. **TDD mandatory** (failing test first → implement →
 > `scripts/check.sh` green). Shared decisions/discipline/invariants: see the
