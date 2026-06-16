@@ -5,10 +5,9 @@
 > `ForwardKinematics` (ikpy behind the lazy `pibot[arm-ik]` extra; arm core stays numpy-free),
 > `sizing.emit_urdf` / `--emit-urdf` (one source of truth), and FK pose in `/arm/telemetry` + `pibot
 > arm telemetry` + the Arm screen (absent without `[arm-ik]`, never a crash). `scripts/check.sh` +
-> desktop gate green. **Note:** the FK tests are `importorskip("ikpy")`-guarded — they run locally
-> (ikpy installed) but **skip in CI until M-ARM-4 task 4.1 adds the `[arm-ik]` install** to the gate;
-> the rest of the milestone (geometry load, sizing emit, numpy-free import guard) is gate-verified.
-> Dimensions are sizing-default `⬜ TUNE` placeholders until the built arm is measured.
+> desktop gate green. The FK tests are `importorskip("ikpy")`-guarded; the CI gate installs the
+> `[arm-ik]` extra so they **run in CI** (the import-guard tests still enforce the numpy-free arm
+> core). Dimensions are sizing-default `⬜ TUNE` placeholders until the built arm is measured.
 >
 > **For Claude:** execute with `lore:execute`. **TDD mandatory** (failing test first → implement →
 > `scripts/check.sh` green). Shared decisions/discipline/invariants: see the
@@ -62,7 +61,7 @@ from config (`⬜ TUNE` until the built arm is measured).
   joint-order shim between PiBot logical joints and the URDF chain.
 - **Files:** `pibot/arm/kinematics.py`.
 - **Test-first:** extend `tests/test_arm_kinematics.py` — a known joint set → expected pose within
-  tolerance (runs with `arm-ik` installed; see M-ARM-4 task 4.1 for the CI install).
+  tolerance. The CI gate installs the `[arm-ik]` extra so these run in CI.
 - **Done when:** FK matches expected poses; `import pibot.arm.kinematics` still imports without numpy.
 
 ### 3.3 — Sizing emits geometry

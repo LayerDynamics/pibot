@@ -16,10 +16,13 @@ jobs:
         with:
           python-version: "3.11"
       - name: Create venv and install the suite + dev tools
+        # Install the `[arm-ik]` extra (ikpy) so the forward-kinematics tests actually RUN in CI
+        # rather than importorskip-skipping (M-ARM-3 FK / M-ARM-4 IK). The arm core, CLI, and agent
+        # still import numpy-free — that boundary is enforced by the import-guard tests.
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e .
+          .venv/bin/pip install -e '.[arm-ik]'
           .venv/bin/pip install ruff mypy pytest pytest-cov pyyaml
       - name: Run the quality gate
         # Same gate as local: ruff check + format --check + mypy + pytest with the
