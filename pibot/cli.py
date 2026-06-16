@@ -1168,6 +1168,15 @@ def _print_arm_telemetry(snap: dict) -> None:
     positions = snap.get("positions", {})
     for jid in sorted(positions, key=int):
         print(f"  J{jid}: {float(positions[jid]):.1f}°")
+    gripper = snap.get("gripper")
+    if gripper:
+        tool = "on" if gripper["tool"] else "off"
+        print(f"  gripper: {float(gripper['deg']):.0f}° · tool {tool}")
+    pose = snap.get("pose")  # end-effector FK pose (present only with the [arm-ik] extra)
+    if pose:
+        print(
+            f"  EE: x={pose['x'] * 1000:.0f} y={pose['y'] * 1000:.0f} z={pose['z'] * 1000:.0f} mm"
+        )
 
 
 def _arm_dry_run(action: str, args: argparse.Namespace) -> str:

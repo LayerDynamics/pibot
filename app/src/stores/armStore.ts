@@ -12,6 +12,7 @@ interface ArmState {
   homed: Record<string, boolean>;
   estopped: boolean;
   gripper: { deg: number; tool: boolean } | null;
+  pose: { x: number; y: number; z: number; rx: number; ry: number; rz: number } | null;
   ageMs: number | null;
   stale: boolean;
   /** True once a fetch has succeeded, so the screen can distinguish "no data yet" from "no arm". */
@@ -78,6 +79,7 @@ const EMPTY = {
   homed: {},
   estopped: false,
   gripper: null,
+  pose: null,
   ageMs: null,
   stale: false,
   loaded: false,
@@ -104,6 +106,7 @@ export const useArmStore = create<ArmState>((set) => ({
         homed: data.homed ?? {},
         estopped: data.estopped ?? false,
         gripper: data.gripper ?? null,
+        pose: data.pose ?? null,
         ageMs: data.age_ms,
         stale,
         loaded: true,

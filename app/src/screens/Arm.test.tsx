@@ -18,6 +18,7 @@ function seed(over: Partial<ReturnType<typeof useArmStore.getState>> = {}): void
     homed: { "0": true, "1": false },
     estopped: false,
     gripper: { deg: 25, tool: false },
+    pose: { x: 0.5, y: 0, z: 0.3, rx: 0, ry: 0, rz: 0 },
     ageMs: 50,
     stale: false,
     loaded: true,
@@ -121,5 +122,17 @@ describe("Arm screen controls", () => {
 
     expect(screen.getByTestId("arm-grip-open")).toBeDisabled();
     expect(screen.getByTestId("arm-tool-toggle")).toBeDisabled();
+  });
+
+  it("shows the FK end-effector pose when present, and hides it when null", () => {
+    seed({ pose: { x: 0.5, y: 0, z: 0.3, rx: 0, ry: 0, rz: 0 } });
+    const { unmount } = render(<Arm ep={EP} />);
+    expect(screen.getByTestId("arm-ee-pose")).toHaveTextContent("x 500");
+    expect(screen.getByTestId("arm-ee-pose")).toHaveTextContent("z 300");
+    unmount();
+
+    seed({ pose: null });
+    render(<Arm ep={EP} />);
+    expect(screen.queryByTestId("arm-ee-pose")).toBeNull();
   });
 });

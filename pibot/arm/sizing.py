@@ -749,8 +749,36 @@ def format_report(arm: ArmSpec, sizing: ArmSizing) -> str:
     return "\n".join(lines)
 
 
+def emit_urdf(spec: ArmSpec) -> str:
+    """Generate the kinematic-model URDF from this arm's link lengths + joint limits (FR-10).
+
+    The geometry model, the firmware ``JCFG``, and this calculator then share **one source of
+    truth** (SPEC R3 anti-drift) — the arm's TOML config. Joint *axes* use the geometry package's
+    AR3 6R convention (by joint index), decoupled from the ``horizontal``/``vertical`` gravity-axis
+    the sizing math uses (that math is unchanged — SPEC N6). Lengths/limits pass straight through.
+    """
+    from pibot.arm import geometry
+
+    joints = [
+        geometry.JointGeom(
+            name=jc.name,
+            axis=(
+                geometry.STANDARD_6R_AXES[i]
+                if i < len(geometry.STANDARD_6R_AXES)
+                else (0.0, 1.0, 0.0)
+            ),
+            length_m=jc.link_length_m,
+            min_deg=jc.min_deg,
+            max_deg=jc.max_deg,
+        )
+        for i, jc in enumerate(spec.joints)
+    ]
+    return geometry.generate_urdf(joints, name="pibot_arm")
+
+
 def main(argv: list[str] | None = None) -> int:
-    """``python -m pibot.arm.sizing <config.toml>`` — size an arm and print the report + JCFG."""
+    """``python -m pibot.arm.sizing <config.toml> [--emit-urdf]`` — size an arm (report + JCFG), or
+    emit the kinematic-model URDF for ``pibot/arm/geometry/``."""
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -758,9 +786,17 @@ def main(argv: list[str] | None = None) -> int:
         description="Size a stepper robot arm and emit the firmware JCFG[] numbers.",
     )
     parser.add_argument("config", help="path to an arm TOML config (see examples/)")
+    parser.add_argument(
+        "--emit-urdf",
+        action="store_true",
+        help="emit the kinematic-model URDF (FR-10) instead of the sizing report",
+    )
     args = parser.parse_args(argv)
 
     arm = load_arm_toml(args.config)
+    if args.emit_urdf:
+        print(emit_urdf(arm))
+        return 0
     sizing = size_arm(arm)
     print(format_report(arm, sizing))
     return 0 if sizing.all_adequate else 1

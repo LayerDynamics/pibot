@@ -26,6 +26,8 @@ _TELEMETRY = {
     "enabled": True,
     "num_joints": 2,
     "positions": {"0": 10.0, "1": 20.0},
+    "gripper": None,
+    "pose": {"x": 0.5, "y": 0.0, "z": 0.3, "rx": 0.0, "ry": 0.0, "rz": 0.0},
     "ts": 1.0,
     "age_ms": 5.0,
 }
@@ -216,6 +218,7 @@ def test_arm_telemetry_human_output(capsys: pytest.CaptureFixture[str]) -> None:
     assert "2 joint(s)" in out
     assert "J0: 10.0°" in out
     assert "J1: 20.0°" in out
+    assert "EE: x=500 y=0 z=300 mm" in out  # FK pose, metres -> mm
 
 
 def test_arm_command_times_out(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -36,6 +36,7 @@ _log = get_logger("agent.app")
 if TYPE_CHECKING:
     from agent.autonomy import AutonomyController
     from agent.video import CameraBroker
+    from pibot.arm.kinematics import ForwardKinematics
     from pibot.arm.manager import ArmManager
     from pibot.arm.safety import ArmGate
 
@@ -77,6 +78,11 @@ class AgentState:
     arm_gate: ArmGate | None = None
     arm_estopped: bool = False
     arm_homed: set[int] = field(default_factory=set)
+    # Forward kinematics (M-ARM-3): a lazily-built ikpy chain (the optional [arm-ik] extra). Built
+    # on first /arm/telemetry request when angles exist; absent (pose=None) when the extra isn't
+    # installed — the agent core stays numpy-free at module load (NFR-2).
+    arm_fk: ForwardKinematics | None = None
+    arm_fk_tried: bool = False
 
 
 STATE: web.AppKey[AgentState] = web.AppKey("pibot_state", AgentState)
@@ -346,6 +352,36 @@ async def _arm_drain(state: AgentState) -> None:
             state.arm_positions_ts = time.time()
 
 
+def _compute_arm_pose(state: AgentState) -> dict[str, float] | None:
+    """Lazy-build the ikpy chain (cached; a missing ``[arm-ik]`` extra is tried once) and solve FK.
+
+    Runs in a worker thread (see :func:`_arm_pose`) so the numpy work stays off the event loop.
+    """
+    if state.arm_fk is None and not state.arm_fk_tried:
+        state.arm_fk_tried = True
+        try:
+            from pibot.arm.kinematics import ForwardKinematics
+
+            state.arm_fk = ForwardKinematics()
+        except Exception:  # noqa: BLE001 — no [arm-ik] extra / bad model → pose simply absent
+            state.arm_fk = None
+    if state.arm_fk is None:
+        return None
+    try:
+        return state.arm_fk.solve(state.arm_positions).as_dict()
+    except Exception:  # noqa: BLE001 — never let an FK hiccup break the telemetry response
+        return None
+
+
+async def _arm_pose(state: AgentState) -> dict[str, float] | None:
+    """End-effector pose (FK of the cached joint angles), or ``None`` when no arm/angles or the
+    ``[arm-ik]`` extra isn't installed. The FK (numpy) runs via ``to_thread`` so it never blocks the
+    event loop — keeping e-stop/control latency unaffected, like the motion sends (NFR-1)."""
+    if state.arm is None or not state.arm_positions:
+        return None
+    return await asyncio.to_thread(_compute_arm_pose, state)
+
+
 async def handle_arm_telemetry(request: web.Request) -> web.Response:
     """Read-only joint angles (deg) per logical joint, served from the drain cache.
 
@@ -363,6 +399,7 @@ async def handle_arm_telemetry(request: web.Request) -> web.Response:
                 "homed": {},
                 "estopped": False,
                 "gripper": None,
+                "pose": None,
                 "ts": 0.0,
                 "age_ms": None,
             }
@@ -370,6 +407,7 @@ async def handle_arm_telemetry(request: web.Request) -> web.Response:
     ts = state.arm_positions_ts
     age_ms = round((time.time() - ts) * 1000, 1) if ts else None
     grip = state.arm.gripper()
+    pose = await _arm_pose(state)
     return web.json_response(
         {
             "ok": True,
@@ -383,6 +421,8 @@ async def handle_arm_telemetry(request: web.Request) -> web.Response:
             "estopped": state.arm_estopped,
             # End-effector state (M-ARM-2), drained from the gripper board's `grip` frame.
             "gripper": {"deg": grip.deg, "tool": grip.tool} if grip is not None else None,
+            # End-effector Cartesian pose (M-ARM-3 FK); None unless the [arm-ik] extra is installed.
+            "pose": pose,
             "ts": state.arm_positions_ts,
             "age_ms": age_ms,
         }

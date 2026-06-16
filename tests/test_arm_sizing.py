@@ -351,3 +351,31 @@ def test_stress_governs_for_short_heavy_link() -> None:
     )
     js = s.size_joint(arm, 0)
     assert "stress-governed" in js.link_section_desc
+
+
+# ---- M-ARM-3 task 3.3: sizing emits the kinematic-model URDF (FR-10) ----
+
+
+def test_emit_urdf_round_trips_link_lengths_and_limits(tmp_path: Path) -> None:
+    """The emitted URDF carries the sizing config's link lengths + joint limits unchanged, so the
+    model and the sizing calculator share one source of truth (SPEC R3 anti-drift)."""
+    from pibot.arm import geometry
+
+    arm = _two_joint_arm()  # base link 0.10 m, shoulder link 0.30 m; default limits -90..90
+    urdf = s.emit_urdf(arm)
+    path = tmp_path / "arm.urdf"
+    path.write_text(urdf)
+
+    model = geometry.load(path)
+    assert [j.name for j in model.joints] == [jc.name for jc in arm.joints]
+    for got, jc in zip(model.joints, arm.joints, strict=True):
+        assert got.length_m == pytest.approx(jc.link_length_m)
+        assert got.min_deg == pytest.approx(jc.min_deg)
+        assert got.max_deg == pytest.approx(jc.max_deg)
+
+
+def test_emit_urdf_cli_prints_a_robot(capsys: pytest.CaptureFixture[str]) -> None:
+    rc = s.main([str(SAMPLE), "--emit-urdf"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "<robot" in out and 'type="revolute"' in out

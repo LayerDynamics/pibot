@@ -71,6 +71,7 @@ export default function Arm({ ep }: Props) {
     homed,
     estopped,
     gripper,
+    pose,
     ageMs,
     stale,
     loaded,
@@ -191,6 +192,18 @@ export default function Arm({ ep }: Props) {
               </span>
             )}
           </div>
+
+          {/* End-effector Cartesian pose from forward kinematics (M-ARM-3); shown only when the
+              robot has the [arm-ik] extra (else `pose` is null). */}
+          {pose && (
+            <div
+              data-testid="arm-ee-pose"
+              className="rounded border border-zinc-800 px-3 py-2 font-mono text-xs text-zinc-300"
+            >
+              EE&nbsp; x {(pose.x * 1000).toFixed(0)} &nbsp; y {(pose.y * 1000).toFixed(0)} &nbsp; z{" "}
+              {(pose.z * 1000).toFixed(0)} mm
+            </div>
+          )}
 
           <div className="flex flex-col gap-2" data-testid="arm-joints">
             {jointIds.map((jid) => {
