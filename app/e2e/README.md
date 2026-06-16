@@ -26,6 +26,7 @@ must be run on a developer machine before each release.
 | `estop.e2e.ts` | E-stop latch + sidecar-killed failsafe | Red banner, cannot drive, re-connect required |
 | `autonomy.e2e.ts` | Autonomy start→stop with fake policy | Policy-link chart renders, stop returns to idle |
 | `provisioning.e2e.ts` | Flash dry-run → modal → guard checkbox required | Confirm button disabled without guard check |
+| `arm.e2e.ts` | Arm tab home → jog → program → twin → e-stop/clear | Arm telemetry, program state, and the twin stay coherent on a real arm stand |
 
 ### How to run (macOS, developer machine)
 
@@ -46,8 +47,10 @@ pnpm e2e
 - Tauri debug build with `tauri-plugin-webdriver` enabled
 - `pibotd` reachable at `http://127.0.0.1:<agent_port>`
 - Robot inventory entry for `testbot`
+- For `arm.e2e.ts`: an arm-enabled robot/stand with the Arm screen surfaces configured
 
 ### Release gate
 
-All five flows must pass on the developer's M4 Max before V1 ships.
-Results are recorded in `docs/mission-control-v1-signoff.md`.
+The five core Mission Control flows must pass on the developer's M4 Max before V1 ships.
+For an arm release, `arm.e2e.ts` is additionally required on an arm-enabled stand.
+Results are recorded in `docs/mission-control-v1-signoff.md` and `docs/hardware-arm-signoff.md`.

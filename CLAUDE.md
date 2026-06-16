@@ -109,6 +109,7 @@ tests so the gate is hermetic with **zero skips**. Run them explicitly:
 
 ```bash
 .venv/bin/pytest -m hardware          # needs a real Pi via PIBOT_TEST_HOST
+.venv/bin/pytest tests/integration/test_arm_live.py -q   # arm bench smoke; also needs PIBOT_TEST_ARM=1
 .venv/bin/pytest -o addopts="" -m toolchain tests/test_firmware_compiles.py   # needs arduino-cli + cores
 ```
 
@@ -136,7 +137,8 @@ by the existing `armStore` telemetry polling path; do not add a second telemetry
 The E2E suite (`app/e2e/`) is **manual / host-marked**, not in CI: it needs a built `.app`
 + WKWebView + a real `pibotd` stand, which the CI container can't provide. Per the
 project's E2E honesty rule, do not relabel a Chromium/integration test as E2E. See
-`app/e2e/README.md` for the run procedure and the five required release flows.
+`app/e2e/README.md` for the run procedure. `app/e2e/arm.e2e.ts` is the extra Arm-screen flow used for
+arm release signoff; record those results in `docs/hardware-arm-signoff.md`.
 
 ### Firmware
 

@@ -139,6 +139,27 @@ Operational notes:
 3. A stopped or failed run leaves the last program status in telemetry so the UI can surface why
    playback ended.
 
+## Hardware signoff / release gate (M-ARM-7)
+
+Bench signoff is a **separate** bar from the normal software gate. Use the dedicated signoff page to
+record the real-hardware evidence for the arm stack:
+
+- [`docs/hardware-arm-signoff.md`](../hardware-arm-signoff.md) — bench environment, hardware-marked
+  pytest commands, manual CLI/Mission Control journeys, and the results tables.
+- [`app/e2e/arm.e2e.ts`](../../app/e2e/arm.e2e.ts) — the host-marked Arm-screen flow for the Tauri app.
+
+Typical bench env:
+
+```bash
+export PIBOT_TEST_HOST=192.168.1.99
+export PIBOT_TEST_ARM=1
+export PIBOT_TEST_ARM_MOVE_DEG=5
+.venv/bin/pytest tests/integration/test_arm_live.py -q
+.venv/bin/pytest tests/integration/test_deploy_live.py -q
+```
+
+Add `PIBOT_TEST_ARM_GRIPPER=1` when the optional gripper/tool hardware is fitted.
+
 ## Per-joint limits
 
 The host gate clamps each absolute angle to `[min_deg, max_deg]` and each velocity to `±max_dps`
@@ -157,5 +178,6 @@ enforces the real bounds.
 ## See also
 
 - [e-stop.md](e-stop.md) — the robot-drive e-stop and the layered fail-safe model.
+- [hardware-arm-signoff.md](../hardware-arm-signoff.md) — the arm hardware release checklist.
 - [`docs/usage.md`](../usage.md) — the full `pibot arm` command reference.
 - [`docs/specs/SPEC-4-pibot-robot-arm.md`](../specs/SPEC-4-pibot-robot-arm.md) — requirements.

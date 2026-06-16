@@ -1,9 +1,12 @@
-# Plan Index — SPEC-4 PiBot Robot Arm implementation (M-ARM-1 … M-ARM-6)
+# Plan Index — SPEC-4 PiBot Robot Arm implementation (M-ARM-1 … M-ARM-7)
 
 > **For Claude:** this is the **umbrella index**. Each milestone has its own standalone plan (linked
 > below) — execute one at a time with `lore:execute`. The shared **decisions**, **discipline**, and
-> **invariants** here apply to every milestone plan. Realizes [SPEC-4](../specs/SPEC-4-pibot-robot-arm.md);
-> closes the gaps in [`OtherArms.md`](../research/stepper-robot-arms-github/OtherArms.md) §6A/§6B.
+> **invariants** here apply to every milestone plan. M-ARM-1..6 realize
+> [SPEC-4](../specs/SPEC-4-pibot-robot-arm.md); **M-ARM-7 is a post-SPEC-4 follow-on** that closes the
+> live-hardware validation and release-hardening work the spec leaves manual. Together they close the
+> gaps in [`OtherArms.md`](../research/stepper-robot-arms-github/OtherArms.md) §6A/§6B and then carry
+> the arm to release readiness.
 
 ## Goal
 
@@ -11,7 +14,8 @@ Take PiBot's arm from "built + safety-correct + read-only telemetry" to a contro
 kinematics-aware manipulator — **without rebuilding the layered firmware safety or the sizing
 calculator** (preserve them as constraints). Wire the existing motion engine end-to-end, then add
 gripper, an in-tree kinematic model, FK/IK behind the `JointSolver` seam, trajectories +
-teach/playback persistence, and a live 3-D twin.
+teach/playback persistence, a live 3-D twin, and finally the real-hardware validation / release
+evidence needed to trust the full stack on the bench.
 
 ## Milestone plans
 
@@ -23,6 +27,11 @@ teach/playback persistence, and a live 3-D twin.
 | **M-ARM-4** Inverse kinematics | [`…-m-arm-4-ik.md`](./2026-06-15-spec4-m-arm-4-ik.md) | FR-12,13,14 | §6A (A.5) |
 | **M-ARM-5** Trajectories + teach/playback | [`…-m-arm-5-trajectories-teach-playback.md`](./2026-06-15-spec4-m-arm-5-trajectories-teach-playback.md) | FR-15,16,17 | §6A (A.4) + §6B-3 |
 | **M-ARM-6** 3-D twin | [`…-m-arm-6-3d-twin.md`](./2026-06-15-spec4-m-arm-6-3d-twin.md) | FR-18 | §6B-5 |
+| **M-ARM-7** Hardware validation + release hardening | [`…-m-arm-7-hardware-validation-release-hardening.md`](./2026-06-16-spec4-m-arm-7-hardware-validation-release-hardening.md) | post-SPEC-4 ops closure (NFR-1,5,8) | hardware-marked signoff + release readiness |
+
+> **Note:** M-ARM-7 is intentionally **outside** the original SPEC-4 FR-1..18 feature map. It is the
+> release-confidence milestone: deploy/rollback on a real Pi + arm, hardware-marked smoke coverage,
+> Mission Control arm E2E, and a signoff artifact that records the bench results.
 
 ## Decisions locked (from `/lore:plan` discovery, 2026-06-15)
 
