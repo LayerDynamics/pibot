@@ -149,7 +149,7 @@ def load(path: str | Path | None = None) -> Model:
     generated model round-trips exactly.
     """
     urdf_path = Path(path) if path is not None else Path(__file__).parent / _URDF_NAME
-    root = ET.parse(urdf_path).getroot()
+    root = defusedxml.etree.ElementTree.parse(urdf_path).getroot()
     all_joints = list(root.iter("joint"))
     revolute = [j for j in all_joints if j.get("type") == "revolute"]
 
