@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from pibot.arm import ArmManager, JointRef, linear_joint_map
+from pibot.arm import ArmManager, GripperState, JointRef, linear_joint_map
 from pibot.protocol.codec import Message, MessageType, decode, encode
 from pibot.transport.base import Transport
 
@@ -158,6 +158,44 @@ def test_open_close_propagate_to_every_board() -> None:
     assert t0.is_open and t1.is_open
     arm.close()
     assert not t0.is_open and not t1.is_open
+
+
+def _grip_telemetry(deg: float, tool: float) -> bytes:
+    return encode(Message(MessageType.TELEMETRY, 0, "grip", {"deg": deg, "tool": tool}), "ascii")
+
+
+def test_grip_and_tool_route_to_the_gripper_board() -> None:
+    t0, t1 = FakeTransport(), FakeTransport()
+    arm = ArmManager([t0, t1], linear_joint_map([3, 3]), gripper_board=1)
+    arm.grip(40.0)
+    arm.tool(True)
+    assert t0.sent == []  # the gripper is on board 1 only
+    grip = decode(t1.sent[0], "ascii")
+    assert grip.name == "grip" and grip.args["deg"] == 40.0
+    tool = decode(t1.sent[1], "ascii")
+    assert tool.name == "tool" and tool.args["on"] == 1
+
+
+def test_gripper_board_defaults_to_zero() -> None:
+    t0, t1 = FakeTransport(), FakeTransport()
+    arm = ArmManager([t0, t1], linear_joint_map([3, 3]))
+    arm.grip(10.0)
+    assert decode(t0.sent[0], "ascii").name == "grip"
+
+
+def test_gripper_board_out_of_range_raises() -> None:
+    with pytest.raises(ValueError):
+        ArmManager([FakeTransport()], linear_joint_map([1]), gripper_board=2)
+
+
+def test_positions_captures_gripper_telemetry() -> None:
+    t0, t1 = FakeTransport(), FakeTransport()
+    arm = ArmManager([t0, t1], linear_joint_map([3, 3]), gripper_board=1)
+    assert arm.gripper() is None
+    t1.inject(_grip_telemetry(33.0, 1.0))
+    arm.positions(timeout=0.0)  # the drain also captures the gripper frame
+    g = arm.gripper()
+    assert g == GripperState(deg=33.0, tool=True)
 
 
 def test_open_partial_failure_rolls_back_already_opened() -> None:

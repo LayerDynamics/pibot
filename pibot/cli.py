@@ -475,6 +475,18 @@ def build_parser() -> argparse.ArgumentParser:
     _add_dry_run(a_pose)
     a_pose.set_defaults(func=cmd_arm)
 
+    a_grip = arm_sub.add_parser("grip", parents=[g], help="set the servo gripper angle (deg)")
+    a_grip.add_argument("target")
+    a_grip.add_argument("deg", type=float)
+    _add_dry_run(a_grip)
+    a_grip.set_defaults(func=cmd_arm)
+
+    a_tool = arm_sub.add_parser("tool", parents=[g], help="energize/release the digital-out tool")
+    a_tool.add_argument("target")
+    a_tool.add_argument("state", choices=["on", "off"])
+    _add_dry_run(a_tool)
+    a_tool.set_defaults(func=cmd_arm)
+
     return parser
 
 
@@ -1184,6 +1196,10 @@ def _arm_dry_run(action: str, args: argparse.Namespace) -> str:
         return "release the steppers"
     if action == "pose":
         return f"move to preset pose {args.name!r} over {args.seconds}s"
+    if action == "grip":
+        return f"set the gripper to {args.deg}°"
+    if action == "tool":
+        return f"turn the tool {args.state}"
     raise UsageError(f"unknown arm action {action!r}")
 
 
@@ -1225,6 +1241,10 @@ def cmd_arm(args: argparse.Namespace) -> int:
             return await client.arm_enable(False)
         if action == "pose":
             return await _arm_pose(client, args, NamedPoseSolver)
+        if action == "grip":
+            return await client.arm_grip(args.deg)
+        if action == "tool":
+            return await client.arm_tool(args.state == "on")
         raise UsageError(f"unknown arm action {action!r}")
 
     async def _run() -> dict:

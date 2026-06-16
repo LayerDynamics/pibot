@@ -36,6 +36,7 @@ describe("armStore.fetch", () => {
       positions: { "0": 12.5, "1": -4.25, "2": 0 },
       homed: { "0": true, "1": false, "2": false },
       estopped: true,
+      gripper: { deg: 30, tool: true },
       ts: 1000,
       age_ms: 120,
     };
@@ -49,6 +50,7 @@ describe("armStore.fetch", () => {
     expect(s.positions).toEqual({ "0": 12.5, "1": -4.25, "2": 0 });
     expect(s.homed).toEqual({ "0": true, "1": false, "2": false });
     expect(s.estopped).toBe(true);
+    expect(s.gripper).toEqual({ deg: 30, tool: true });
     expect(s.loaded).toBe(true);
     expect(s.stale).toBe(false);
     expect(s.error).toBeNull();
@@ -62,6 +64,7 @@ describe("armStore.fetch", () => {
       positions: { "0": 5 },
       homed: { "0": true },
       estopped: false,
+      gripper: null,
       ts: 1,
       age_ms: 1500,
     };
@@ -80,6 +83,7 @@ describe("armStore.fetch", () => {
       positions: {},
       homed: {},
       estopped: false,
+      gripper: null,
       ts: 0,
       age_ms: null,
     };
@@ -195,6 +199,22 @@ describe("armStore motion actions", () => {
     const call = lastCall(spy);
     expect(call.url).toContain("/api/arm/enable");
     expect(call.body).toEqual({ on: false });
+  });
+
+  it("grip POSTs the angle to /api/arm/grip", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().grip(FAKE_EP, 42);
+    const call = lastCall(spy);
+    expect(call.url).toContain("/api/arm/grip");
+    expect(call.body).toEqual({ deg: 42 });
+  });
+
+  it("tool POSTs the on flag to /api/arm/tool", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().tool(FAKE_EP, true);
+    const call = lastCall(spy);
+    expect(call.url).toContain("/api/arm/tool");
+    expect(call.body).toEqual({ on: true });
   });
 
   it("surfaces a host-gate nak as an error and does not latch on a refused estop", async () => {

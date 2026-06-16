@@ -78,6 +78,32 @@ class RecordingArmTransport(FakeArmTransport):
         return [m.name for m in self.sent]
 
 
+class GripperArmTransport(FakeArmTransport):
+    """Replays a ``joints`` frame on each blocking recv, then a ``grip`` frame on the drain pass."""
+
+    def __init__(self, positions: list[float], grip_deg: float, tool: float) -> None:
+        super().__init__(positions)
+        self._grip = (grip_deg, tool)
+        self._emit_grip = False
+
+    def recv(self, timeout: float) -> bytes | None:
+        if timeout <= 0:
+            if self._emit_grip:
+                self._emit_grip = False
+                return encode(
+                    Message(
+                        MessageType.TELEMETRY,
+                        0,
+                        "grip",
+                        {"deg": self._grip[0], "tool": self._grip[1]},
+                    ),
+                    "ascii",
+                )
+            return None
+        self._emit_grip = True
+        return super().recv(timeout)
+
+
 class OnceThenSilentArmTransport(FakeArmTransport):
     """A board that reports its joints frame exactly once, then never again — to model a board
     that drops out of a drain cycle while another board keeps reporting."""
@@ -106,6 +132,7 @@ def test_arm_telemetry_disabled_when_no_arm() -> None:
             assert d["age_ms"] is None
             assert d["homed"] == {}
             assert d["estopped"] is False
+            assert d["gripper"] is None
 
     _run(body())
 
@@ -213,10 +240,12 @@ def test_build_arm_builds_manager_from_config() -> None:
     cfg = Config(
         arm_serial_ports=["/dev/ttyUSB0", "/dev/ttyUSB1"],
         arm_joints_per_board=[3, 3],
+        arm_gripper_board=1,
     )
     arm = build_arm(cfg)
     assert arm is not None
     assert arm.num_joints == 6
+    assert arm.gripper_board == 1  # the configured board owns the end-effector
 
 
 def test_build_arm_gate_defaults_when_no_limits_configured() -> None:
@@ -443,6 +472,54 @@ def test_arm_control_bad_frame_naks_without_crashing() -> None:
     _run(body())
 
 
+# ---- M-ARM-2 task 2.4: gripper / tool through the control surface -----------
+
+
+def test_arm_control_grip_and_tool_through_gate() -> None:
+    async def body() -> None:
+        fake = RecordingArmTransport([0.0])
+        arm = ArmManager([fake], linear_joint_map([1]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        async with TestClient(TestServer(app)) as c:
+            ws = await c.ws_connect("/arm/control")
+            await ws.send_json({"cmd": "grip", "deg": 40.0})
+            assert (await ws.receive_json())["type"] == "ack"
+            await ws.send_json({"cmd": "tool", "on": True})
+            assert (await ws.receive_json())["type"] == "ack"
+
+            # Both are refused while e-stop is latched.
+            await ws.send_json({"cmd": "estop"})
+            assert (await ws.receive_json())["type"] == "ack"
+            await ws.send_json({"cmd": "grip", "deg": 10.0})
+            grip_nak = await ws.receive_json()
+            assert grip_nak["type"] == "nak" and "estop" in grip_nak["reason"]
+            await ws.send_json({"cmd": "tool", "on": False})
+            assert (await ws.receive_json())["type"] == "nak"
+            await ws.close()
+        names = fake.names()
+        assert "grip" in names and "tool" in names
+
+    _run(body())
+
+
+def test_arm_telemetry_includes_gripper_state() -> None:
+    async def body() -> None:
+        fake = GripperArmTransport([10.0], grip_deg=55.0, tool=1.0)
+        arm = ArmManager([fake], linear_joint_map([1]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        async with TestClient(TestServer(app)) as c:
+            gripper = None
+            for _ in range(40):
+                d = await (await c.get("/arm/telemetry")).json()
+                if d.get("gripper"):
+                    gripper = d["gripper"]
+                    break
+                await asyncio.sleep(0.02)
+            assert gripper == {"deg": 55.0, "tool": True}
+
+    _run(body())
+
+
 # ---- M-ARM-1 task 1.3: AgentClient motion methods hit the right frames -----
 
 
@@ -466,14 +543,17 @@ def test_agent_client_arm_methods_route_through_the_gate() -> None:
                 assert (await client.arm_move_joint(0, 30.0))["type"] == "ack"  # -> jpos
                 assert (await client.arm_move_joint(1, 10.0, speed=5.0))["type"] == "ack"  # jmove
                 assert (await client.arm_move_joints({0: 12.0, 1: 22.0}, 1.0))["type"] == "ack"
+                assert (await client.arm_grip(35.0))["type"] == "ack"
+                assert (await client.arm_tool(True))["type"] == "ack"
                 assert (await client.arm_estop())["type"] == "ack"
                 assert (await client.arm_jog(0, 5.0))["type"] == "nak"  # latched
+                assert (await client.arm_grip(10.0))["type"] == "nak"  # gripper latched too
                 assert (await client.arm_clear_estop())["type"] == "ack"
                 assert (await client.arm_enable(False))["type"] == "ack"
             finally:
                 await client.close()
         names = fake.names()
-        for verb in ("jvel", "jpos", "jmove", "home", "estop", "enable"):
+        for verb in ("jvel", "jpos", "jmove", "home", "estop", "enable", "grip", "tool"):
             assert verb in names, f"{verb} never reached the board"
 
     _run(body())

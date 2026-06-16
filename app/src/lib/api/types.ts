@@ -99,6 +99,8 @@ export interface ArmTelemetry {
   homed: Record<string, boolean>;
   /** Whether the arm e-stop is latched (all motion refused until cleared). */
   estopped: boolean;
+  /** End-effector state (servo angle + tool digital-out), or null when none is configured/reported. */
+  gripper: { deg: number; tool: boolean } | null;
   ts: number;
   /** Server-computed age of the cached sample in ms (null until the first sample). */
   age_ms: number | null;

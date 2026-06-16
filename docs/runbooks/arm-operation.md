@@ -68,6 +68,28 @@ Recovery checklist after an e-stop:
 > **overclaim**. Re-home (`pibot arm home pibot --all`) after any disable/back-drive before
 > trusting absolute moves. The homed indicator means "home was commanded", not "position verified."
 
+## Gripper / end-effector (M-ARM-2)
+
+A servo gripper rides the spare **E0** channel; an optional digital-output **tool** (relay/pneumatic)
+rides a configurable pin. Both go through the same host gate — **refused while e-stop is latched** —
+and the gripper angle is clamped to the servo range on the host and to the configured
+`[GRIP_MIN_DEG, GRIP_MAX_DEG]` on the board. The gripper has **no endstop**, so those clamps + a
+conservative `GRIP_MAX` are the only over-travel guard — bench-verify travel before closing on
+anything.
+
+```bash
+pibot arm grip pibot 0       # open (servo to 0°)
+pibot arm grip pibot 30      # close to 30° (board clamps to GRIP_MAX)
+pibot arm tool pibot on      # energize the tool relay (off to release)
+```
+
+From Mission Control, the **Arm** screen's Gripper row has a slider + **Open**/**Close** buttons and a
+**Tool** toggle; the readout shows the live servo angle + tool state from telemetry. The gripper ships
+**opt-in**: firmware `HAS_GRIPPER`/`HAS_TOOL` default `false`, so until you enable them `grip`/`tool`
+nak and the screen shows no gripper. Set them `true` and confirm the `⬜ TUNE` pins/angles
+(`GRIP_PIN`, `GRIP_MIN_DEG`, `GRIP_MAX_DEG`, `TOOL_PIN`) on the bench when you flash — see
+[`firmware/pibot_arm_stm32/sd/README.md`](../../firmware/pibot_arm_stm32/sd/README.md).
+
 ## Per-joint limits
 
 The host gate clamps each absolute angle to `[min_deg, max_deg]` and each velocity to `±max_dps`

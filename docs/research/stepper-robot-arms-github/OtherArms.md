@@ -258,11 +258,15 @@ missing pieces.
    [`docs/runbooks/arm-operation.md`](../../runbooks/arm-operation.md). *(Originally: the motion engine
    was built but unwired — reachable only from Python tests — "implemented but never called.")*
 
-2. **No gripper / end-effector control.** The firmware, `ArmManager`, protocol, and config have **no
-   gripper concept**, and the spare `E0` channel called out in the plan is unused. Nearly every
-   functional donor controls one: servo (moveo, ar-family, charm, martin-ansteensen, open6x,
-   mecharm), digital/pneumatic (faze4, 6ar), CAN smart-gripper (parol6, dummy), or Dynamixel
-   (manuel). `sizing.py` computes an `end_effector_arc_mm` but there is no actuation.
+2. **No gripper / end-effector control.** ✅ **SHIPPED (M-ARM-2, 2026-06-15).** A servo gripper on
+   the spare `E0` channel + an optional digital-output tool, controllable through the whole M-ARM-1
+   surface: firmware `grip,<deg>`/`tool,<0|1>` verbs (angle-clamped, refused under e-stop) + a `grip`
+   telemetry frame; codec schemas; `ArmManager.grip`/`tool` + gripper telemetry; agent `/arm/control`
+   + `/arm/telemetry`; `AgentClient`/`RobotLink`; `POST /api/arm/{grip,tool}`; `pibot arm grip|tool`;
+   and an `Arm.tsx` gripper control (slider + open/close + tool toggle). Ships **opt-in**
+   (`HAS_GRIPPER`/`HAS_TOOL` default `false`); pins/angles are config-block `⬜ TUNE` values,
+   bench-confirmed on re-flash. *(Originally: no gripper concept; the spare `E0`
+   channel was unused — most functional donors control one: servo, digital/pneumatic, CAN, Dynamixel.)*
 
 3. **No teach & playback / pose programs / persistence.** `NamedPoseSolver` holds **static presets
    defined in code** — there is no record-from-current-pose, no replay sequence, no program/job
@@ -392,9 +396,10 @@ Observations on how the §6B gaps depend on each other, so they aren't read as f
 - **One geometry artifact (§6B-4) is the shared prerequisite for three gaps at once:** IK (plan A.5),
   FK, and a 3D twin (§6B-5) all block on a URDF/DH model being present in-tree. It is the single
   highest-fan-out missing piece, and the donor corpus exists precisely to supply it (§9).
-- **Gripper (§6B-2) and teach/playback (§6B-3) are largely independent** of the kinematics chain —
-  the gripper needs only the spare `E0` channel + a protocol verb; teach/playback extends
-  `NamedPoseSolver` with record/replay + persistence (6ar's block model is the in-corpus template).
+- **Gripper (§6B-2, now shipped in M-ARM-2) and teach/playback (§6B-3) are largely independent** of
+  the kinematics chain — the gripper needed only the spare `E0` channel + a protocol verb (done);
+  teach/playback extends `NamedPoseSolver` with record/replay + persistence (6ar's block model is the
+  in-corpus template).
 - **The "later UI milestone" deferral (§6A) collapses into §6B-1 and §6B-5** — once a control surface
   and a model exist, the read-only `Arm.tsx` becomes a jog/teach/twin panel. The **jog/home/move/
   E-Stop** half shipped in M-ARM-1 (`Arm.tsx` now has motion controls); teach/playback (§6B-3) and the

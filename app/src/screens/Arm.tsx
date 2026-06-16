@@ -25,6 +25,43 @@ function barFill(deg: number): number {
   return ((clamped + ANGLE_SPAN_DEG) / (2 * ANGLE_SPAN_DEG)) * 100;
 }
 
+/**
+ * A press-and-hold jog button. Pointer-down jogs at `dir * JOG_DPS`; pointer-up, leave, AND
+ * cancel all stop — so a touch/scroll/system-gesture interrupt (which fires neither up nor leave)
+ * can't leave a joint jogging. Both ± buttons render through this one definition so the jog
+ * interaction is defined in a single place and the two directions can't diverge.
+ */
+function JogButton({
+  jid,
+  dir,
+  label,
+  disabled,
+  onStart,
+  onStop,
+}: {
+  jid: string;
+  dir: 1 | -1;
+  label: string;
+  disabled: boolean;
+  onStart: (jid: string, dir: number) => void;
+  onStop: (jid: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={`arm-jog-${dir < 0 ? "neg" : "pos"}-${jid}`}
+      disabled={disabled}
+      onPointerDown={() => onStart(jid, dir)}
+      onPointerUp={() => onStop(jid)}
+      onPointerLeave={() => onStop(jid)}
+      onPointerCancel={() => onStop(jid)}
+      className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function Arm({ ep }: Props) {
   const connected = useConnectionStore((s) => s.state === "connected");
   const {
@@ -33,6 +70,7 @@ export default function Arm({ ep }: Props) {
     positions,
     homed,
     estopped,
+    gripper,
     ageMs,
     stale,
     loaded,
@@ -44,10 +82,13 @@ export default function Arm({ ep }: Props) {
     estop,
     clearEstop,
     enable,
+    grip,
+    tool,
     reset,
   } = useArmStore();
 
   const [goal, setGoal] = useState<Record<string, string>>({});
+  const [gripGoal, setGripGoal] = useState(0);
 
   useEffect(() => {
     if (!ep || !connected) {
@@ -183,30 +224,22 @@ export default function Arm({ ep }: Props) {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      data-testid={`arm-jog-neg-${jid}`}
+                    <JogButton
+                      jid={jid}
+                      dir={-1}
+                      label="−"
                       disabled={jogDisabled}
-                      onPointerDown={() => startJog(jid, -1)}
-                      onPointerUp={() => stopJog(jid)}
-                      onPointerLeave={() => stopJog(jid)}
-                      onPointerCancel={() => stopJog(jid)}
-                      className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
-                    >
-                      −
-                    </button>
-                    <button
-                      type="button"
-                      data-testid={`arm-jog-pos-${jid}`}
+                      onStart={startJog}
+                      onStop={stopJog}
+                    />
+                    <JogButton
+                      jid={jid}
+                      dir={1}
+                      label="+"
                       disabled={jogDisabled}
-                      onPointerDown={() => startJog(jid, 1)}
-                      onPointerUp={() => stopJog(jid)}
-                      onPointerLeave={() => stopJog(jid)}
-                      onPointerCancel={() => stopJog(jid)}
-                      className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
-                    >
-                      +
-                    </button>
+                      onStart={startJog}
+                      onStop={stopJog}
+                    />
                     <button
                       type="button"
                       data-testid={`arm-home-${jid}`}
@@ -239,6 +272,72 @@ export default function Arm({ ep }: Props) {
                 </div>
               );
             })}
+          </div>
+
+          {/* End-effector — servo gripper + optional digital-output tool (M-ARM-2). Refused while
+              e-stop is latched, like joint motion. */}
+          <div
+            className="flex flex-col gap-2 rounded border border-zinc-800 px-3 py-2"
+            data-testid="arm-gripper"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-zinc-300">Gripper</span>
+              <span data-testid="arm-gripper-readout" className="font-mono text-xs text-zinc-200">
+                {gripper
+                  ? `${gripper.deg.toFixed(0)}° · tool ${gripper.tool ? "on" : "off"}`
+                  : "—"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={180}
+                step={1}
+                data-testid="arm-grip-slider"
+                value={gripGoal}
+                disabled={!canControl || estopped}
+                onChange={(e) => setGripGoal(Number(e.target.value))}
+                className="flex-1"
+              />
+              <span className="w-10 text-right font-mono text-xs text-zinc-300">{gripGoal}°</span>
+              <button
+                type="button"
+                data-testid="arm-grip-set"
+                disabled={!canControl || estopped}
+                onClick={() => ep && void grip(ep, gripGoal)}
+                className="rounded bg-sky-700 px-3 py-1 text-sm text-zinc-100 hover:bg-sky-600 disabled:opacity-40"
+              >
+                Set
+              </button>
+              <button
+                type="button"
+                data-testid="arm-grip-open"
+                disabled={!canControl || estopped}
+                onClick={() => ep && void grip(ep, 0)}
+                className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
+              >
+                Open
+              </button>
+              <button
+                type="button"
+                data-testid="arm-grip-close"
+                disabled={!canControl || estopped}
+                onClick={() => ep && void grip(ep, 180)}
+                className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                data-testid="arm-tool-toggle"
+                disabled={!canControl || estopped}
+                onClick={() => ep && void tool(ep, !(gripper?.tool ?? false))}
+                className="rounded bg-zinc-700 px-3 py-1 text-sm text-zinc-100 hover:bg-zinc-600 disabled:opacity-40"
+              >
+                Tool {gripper?.tool ? "off" : "on"}
+              </button>
+            </div>
           </div>
         </>
       )}

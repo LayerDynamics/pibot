@@ -109,7 +109,9 @@ def build_arm(cfg: Config) -> ArmManager | None:
     ]
     joints = linear_joint_map(cfg.arm_joints_per_board)
     _log.info("arm enabled: %d board(s), %d joint(s)", len(transports), len(joints))
-    return ArmManager(transports, joints, encoding=cfg.arm_encoding)
+    return ArmManager(
+        transports, joints, encoding=cfg.arm_encoding, gripper_board=cfg.arm_gripper_board
+    )
 
 
 def build_arm_gate(cfg: Config, num_joints: int) -> ArmGate:

@@ -160,6 +160,16 @@ class RobotLink:
             raise RuntimeError("not connected")
         return await self._client.arm_enable(on)
 
+    async def arm_grip(self, deg: float) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_grip(deg)
+
+    async def arm_tool(self, on: bool) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_tool(on)
+
     async def autonomy_start(
         self,
         *,

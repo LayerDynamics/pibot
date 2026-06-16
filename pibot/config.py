@@ -59,6 +59,8 @@ class Config:
     arm_joints_per_board: list[int] = field(default_factory=list)
     arm_baud: int = 115200
     arm_encoding: str = "ascii"
+    # Which board (index into arm_serial_ports) owns the end-effector on its spare E0 channel.
+    arm_gripper_board: int = 0
     # Per-logical-joint host safety limits: one ``[min_deg, max_deg, max_dps]`` triple per joint
     # (parallel to the linearised joint map). Empty -> the agent builds permissive defaults. The
     # count is cross-checked against the joint total at gate construction (agent/pibotd.py), not
@@ -111,6 +113,7 @@ _FIELD_TYPES: dict[str, tuple[type, ...]] = {
     "video_max_dim": (int,),
     "arm_baud": (int,),
     "arm_encoding": (str,),
+    "arm_gripper_board": (int,),
 }
 
 # list-valued fields -> required element type. Validated element-wise (and bool is

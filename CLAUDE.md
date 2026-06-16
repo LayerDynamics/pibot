@@ -47,8 +47,9 @@ robot.
    is the **sole owner** of the transport. Bearer-token auth on every route except
    `/healthz`. Endpoints: `/health`, `/telemetry` (snapshot + WS push), `/control` (WS
    command frames → safety → ack/nak), `/estop`, `/config`, `/video`, `/arm/telemetry`
-   (read-only stepper-arm joint angles + per-joint homed + e-stop state), `/arm/control` (WS
-   motion frames → host arm safety gate → `ArmManager`, when an arm is configured). Closed-loop
+   (read-only stepper-arm joint angles + per-joint homed + e-stop + gripper state), `/arm/control`
+   (WS motion frames — joints, `grip`/`tool` end-effector — through the host arm safety gate →
+   `ArmManager`, when an arm is configured). Closed-loop
    autonomy (`agent/autonomy.py`) and the camera broker (`agent/video.py`) run **in-process** here.
 6. **CLI** (`pibot/cli.py`) — the host-side `pibot` entrypoint. Subcommands span discover /
    inventory / keys / agent / teleop / monitor / firmware / flash / play / estop / arm / deploy.

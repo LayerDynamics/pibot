@@ -112,6 +112,14 @@ class AgentClient:
         """Energize (``True``) or release (``False``) the arm steppers."""
         return await self._arm_send({"cmd": "enable", "on": on})
 
+    async def arm_grip(self, deg: float) -> dict[str, Any]:
+        """Drive the servo gripper to an absolute angle (deg); the board angle-clamps it."""
+        return await self._arm_send({"cmd": "grip", "deg": deg})
+
+    async def arm_tool(self, on: bool) -> dict[str, Any]:
+        """Energize (``True``) or release (``False``) the digital-output tool."""
+        return await self._arm_send({"cmd": "tool", "on": on})
+
     async def autonomy_start(
         self, *, prompt: str, max_speed: float | None = None, control_hz: float | None = None
     ) -> dict[str, Any]:
