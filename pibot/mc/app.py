@@ -136,6 +136,12 @@ def create_mc_app(
     if st.link is None:
         st.link = RobotLink(on_connect=st.on_robot_connect)
     app[STATE] = st
+
+    async def _cleanup(_app: web.Application) -> None:
+        if st.link is not None:
+            await st.link.disconnect()
+
+    app.on_cleanup.append(_cleanup)
     app.router.add_get("/api/health", handle_health)
     add_inventory_routes(app)
     add_config_routes(app)

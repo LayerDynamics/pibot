@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from pibot.arm import ArmManager, GripperState, JointRef, linear_joint_map
+from pibot.arm.trajectory import TrajectoryFrame
 from pibot.protocol.codec import Message, MessageType, decode, encode
 from pibot.transport.base import Transport
 
@@ -212,3 +213,51 @@ def test_open_partial_failure_rolls_back_already_opened() -> None:
         arm.open()
     # The board that did open is closed again, so a failed open leaves no port leaked.
     assert not t0.is_open
+
+
+def test_run_trajectory_sends_frames_in_order_at_the_right_cadence() -> None:
+    arm, t0, _ = _make_arm()
+    slept: list[float] = []
+
+    arm.run_trajectory(
+        [
+            TrajectoryFrame(targets={0: 0.0, 1: 0.0}, dt=0.0),
+            TrajectoryFrame(targets={0: 30.0, 1: 15.0}, dt=1.0),
+            TrajectoryFrame(targets={0: 60.0, 1: 30.0}, dt=2.0),
+        ],
+        abort_check=lambda: False,
+        sleep=slept.append,
+    )
+
+    cmds = [decode(frame, "ascii") for frame in t0.sent]
+    assert [(cmd.name, int(cmd.args["id"])) for cmd in cmds] == [
+        ("jmove", 0),
+        ("jmove", 1),
+        ("jmove", 0),
+        ("jmove", 1),
+    ]
+    assert cmds[0].args["deg"] == 30.0
+    assert cmds[0].args["dps"] == pytest.approx(30.0)
+    assert cmds[3].args["deg"] == 30.0
+    assert cmds[3].args["dps"] == pytest.approx(7.5)
+    assert slept == [1.0, 2.0]
+
+
+def test_run_trajectory_aborts_before_the_next_frame() -> None:
+    arm, t0, _ = _make_arm()
+    checks = iter([False, True])
+
+    arm.run_trajectory(
+        [
+            TrajectoryFrame(targets={0: 0.0}, dt=0.0),
+            TrajectoryFrame(targets={0: 10.0}, dt=0.5),
+            TrajectoryFrame(targets={0: 20.0}, dt=0.5),
+        ],
+        abort_check=lambda: next(checks),
+        sleep=lambda _dt: None,
+    )
+
+    cmds = [decode(frame, "ascii") for frame in t0.sent]
+    assert len(cmds) == 1
+    assert cmds[0].name == "jmove"
+    assert cmds[0].args["deg"] == pytest.approx(10.0)

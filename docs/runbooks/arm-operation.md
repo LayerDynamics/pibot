@@ -90,6 +90,55 @@ nak and the screen shows no gripper. Set them `true` and confirm the `⬜ TUNE` 
 (`GRIP_PIN`, `GRIP_MIN_DEG`, `GRIP_MAX_DEG`, `TOOL_PIN`) on the bench when you flash — see
 [`firmware/pibot_arm_stm32/sd/README.md`](../../firmware/pibot_arm_stm32/sd/README.md).
 
+## Teach / playback programs (M-ARM-5)
+
+The agent can persist named **poses** and **programs** on the Pi, then replay them through the
+same host gate + firmware gate as every other arm command. Programs are **abortable**: `program-stop`
+or an arm e-stop halts playback mid-run before the next frame or step is sent.
+
+Record the current joint snapshot as a named pose:
+
+```bash
+pibot arm pose-save pibot ready
+pibot arm pose-list pibot
+```
+
+Programs live as JSON under the agent arm state dir:
+
+- default: `~/.pibot/arm/poses/*.json`
+- default: `~/.pibot/arm/programs/*.json`
+
+Mission Control's **Arm** screen is the easiest authoring surface: record poses, stage an ordered
+step list, save the program, then run/stop it while the screen shows live step progress. The
+program model supports:
+
+- `moveJ` — joint-space trapezoidal trajectory to a recorded pose
+- `moveL` — Cartesian-linear path with SLERP orientation to a pose with Cartesian data
+- `grip`
+- `tool`
+- `wait`
+- `loop`
+
+Run or stop a saved program from the CLI:
+
+```bash
+pibot arm program-list pibot
+pibot arm program-run pibot pick
+pibot arm program-stop pibot
+```
+
+`moveL` requires the optional `pibot[arm-ik]` extra and an in-tree arm model; without that, the
+runner refuses the step with a clean "IK unavailable" error and the rest of the agent keeps serving.
+
+Operational notes:
+
+1. Playback uses `ArmManager.run_trajectory()` under `asyncio.to_thread`, so the event loop stays
+   responsive while a program runs.
+2. Recorded poses store the current joint angles and, when FK is available, the current Cartesian
+   pose too; that is what enables later `moveL` steps.
+3. A stopped or failed run leaves the last program status in telemetry so the UI can surface why
+   playback ended.
+
 ## Per-joint limits
 
 The host gate clamps each absolute angle to `[min_deg, max_deg]` and each velocity to `±max_dps`

@@ -44,6 +44,112 @@ async def handle_get_arm_telemetry(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def handle_arm_pose_list(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    try:
+        result = await link.arm_pose_list()
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm pose list failed: {exc}") from exc
+    return web.json_response(result)
+
+
+async def handle_arm_pose_post(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    data = await _body(request)
+    try:
+        name = None if data.get("name") is None else str(data["name"])
+        pose = data.get("pose")
+        if name is None and not isinstance(pose, dict):
+            raise ValueError("pose create needs name or pose")
+        pose_body = pose if isinstance(pose, dict) else None
+        target_name = name
+        if target_name is None:
+            assert pose_body is not None
+            target_name = str(pose_body["name"])
+        result = await link.arm_pose_save(
+            target_name,
+            pose_body,
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise web.HTTPBadRequest(text=f"pose create failed: {exc}") from exc
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm pose create failed: {exc}") from exc
+    return web.json_response(result, status=201)
+
+
+async def handle_arm_pose_get(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    try:
+        result = await link.arm_pose_get(request.match_info["name"])
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm pose get failed: {exc}") from exc
+    return web.json_response(result)
+
+
+async def handle_arm_pose_delete(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    try:
+        result = await link.arm_pose_delete(request.match_info["name"])
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm pose delete failed: {exc}") from exc
+    return web.json_response(result)
+
+
+async def handle_arm_program_list(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    try:
+        result = await link.arm_program_list()
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm program list failed: {exc}") from exc
+    return web.json_response(result)
+
+
+async def handle_arm_program_post(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    data = await _body(request)
+    try:
+        result = await link.arm_program_save(data)
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm program create failed: {exc}") from exc
+    return web.json_response(result, status=201)
+
+
+async def handle_arm_program_get(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    try:
+        result = await link.arm_program_get(request.match_info["name"])
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm program get failed: {exc}") from exc
+    return web.json_response(result)
+
+
+async def handle_arm_program_delete(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    try:
+        result = await link.arm_program_delete(request.match_info["name"])
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm program delete failed: {exc}") from exc
+    return web.json_response(result)
+
+
+async def handle_arm_program_run(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    try:
+        result = await link.arm_program_run(request.match_info["name"])
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm program run failed: {exc}") from exc
+    return web.json_response(result, status=202)
+
+
+async def handle_arm_program_stop(request: web.Request) -> web.Response:
+    link = _require_link(request)
+    try:
+        result = await link.arm_program_stop()
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm program stop failed: {exc}") from exc
+    return web.json_response(result)
+
+
 async def handle_arm_jog(request: web.Request) -> web.Response:
     """POST /api/arm/jog — velocity-jog one joint: ``{joint, dps}``."""
     link = _require_link(request)
@@ -193,6 +299,16 @@ async def handle_arm_tool(request: web.Request) -> web.Response:
 
 def add_arm_routes(app: web.Application) -> None:
     app.router.add_get("/api/arm/telemetry", handle_get_arm_telemetry)
+    app.router.add_get("/api/arm/poses", handle_arm_pose_list)
+    app.router.add_post("/api/arm/poses", handle_arm_pose_post)
+    app.router.add_get("/api/arm/poses/{name}", handle_arm_pose_get)
+    app.router.add_delete("/api/arm/poses/{name}", handle_arm_pose_delete)
+    app.router.add_get("/api/arm/programs", handle_arm_program_list)
+    app.router.add_post("/api/arm/programs", handle_arm_program_post)
+    app.router.add_post("/api/arm/programs/stop", handle_arm_program_stop)
+    app.router.add_get("/api/arm/programs/{name}", handle_arm_program_get)
+    app.router.add_delete("/api/arm/programs/{name}", handle_arm_program_delete)
+    app.router.add_post("/api/arm/programs/{name}/run", handle_arm_program_run)
     app.router.add_post("/api/arm/jog", handle_arm_jog)
     app.router.add_post("/api/arm/move", handle_arm_move)
     app.router.add_post("/api/arm/move-all", handle_arm_move_all)

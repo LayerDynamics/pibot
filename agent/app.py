@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -38,6 +41,8 @@ if TYPE_CHECKING:
     from agent.video import CameraBroker
     from pibot.arm.kinematics import ForwardKinematics, IKSolver
     from pibot.arm.manager import ArmManager
+    from pibot.arm.programs import Pose as RecordedPose
+    from pibot.arm.programs import Program
     from pibot.arm.safety import ArmGate
 
 # Builds the (camera, policy) for an autonomy session from the agent's autonomy config.
@@ -88,6 +93,14 @@ class AgentState:
     # extra/model isn't available — the /arm/control handler returns a clean "IK unavailable" nak.
     arm_ik: IKSolver | None = None
     arm_ik_tried: bool = False
+    # Teach/playback persistence + runner (M-ARM-5). JSON files live under ``arm_state_dir`` and
+    # playback is a cancellable task that sets a thread-safe abort event observed inside the
+    # blocking trajectory executor.
+    arm_state_dir: Path | None = None
+    arm_program_task: asyncio.Task[None] | None = None
+    arm_program_name: str | None = None
+    arm_program_abort: threading.Event = field(default_factory=threading.Event)
+    arm_program_status: dict[str, Any] | None = None
 
 
 STATE: web.AppKey[AgentState] = web.AppKey("pibot_state", AgentState)
@@ -411,51 +424,159 @@ async def _arm_ik(state: AgentState) -> IKSolver | None:
     return state.arm_ik
 
 
-async def handle_arm_telemetry(request: web.Request) -> web.Response:
+def _default_arm_state_dir() -> Path:
+    return Path.home() / ".pibot" / "arm"
+
+
+def _arm_store_root(state: AgentState) -> Path:
+    root = state.arm_state_dir or _default_arm_state_dir()
+    (root / "poses").mkdir(parents=True, exist_ok=True)
+    (root / "programs").mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _arm_name(name: str) -> str:
+    cleaned = str(name).strip()
+    if not cleaned or cleaned in {".", ".."} or any(ch in cleaned for ch in ("/", "\\", "\x00")):
+        raise ValueError("invalid arm item name")
+    return cleaned
+
+
+def _arm_item_path(state: AgentState, kind: str, name: str) -> Path:
+    return _arm_store_root(state) / kind / f"{_arm_name(name)}.json"
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+
+
+async def _list_poses(state: AgentState) -> list[RecordedPose]:
+    from pibot.arm.programs import Pose as RecordedPose
+
+    out: list[RecordedPose] = []
+    for path in sorted((_arm_store_root(state) / "poses").glob("*.json")):
+        out.append(RecordedPose.from_dict(await asyncio.to_thread(_read_json, path)))
+    return out
+
+
+async def _load_pose_record(state: AgentState, name: str) -> RecordedPose:
+    from pibot.arm.programs import Pose as RecordedPose
+
+    path = _arm_item_path(state, "poses", name)
+    if not path.exists():
+        raise FileNotFoundError(name)
+    return RecordedPose.from_dict(await asyncio.to_thread(_read_json, path))
+
+
+async def _save_pose_record(state: AgentState, pose: RecordedPose) -> None:
+    await asyncio.to_thread(_write_json, _arm_item_path(state, "poses", pose.name), pose.as_dict())
+
+
+async def _list_programs(state: AgentState) -> list[Program]:
+    from pibot.arm.programs import Program
+
+    out: list[Program] = []
+    for path in sorted((_arm_store_root(state) / "programs").glob("*.json")):
+        out.append(Program.from_dict(await asyncio.to_thread(_read_json, path)))
+    return out
+
+
+async def _load_program_record(state: AgentState, name: str) -> Program:
+    from pibot.arm.programs import Program
+
+    path = _arm_item_path(state, "programs", name)
+    if not path.exists():
+        raise FileNotFoundError(name)
+    return Program.from_dict(await asyncio.to_thread(_read_json, path))
+
+
+async def _save_program_record(state: AgentState, program: Program) -> None:
+    await asyncio.to_thread(
+        _write_json,
+        _arm_item_path(state, "programs", program.name),
+        program.as_dict(),
+    )
+
+
+async def _delete_arm_item(state: AgentState, kind: str, name: str) -> bool:
+    path = _arm_item_path(state, kind, name)
+    if not path.exists():
+        return False
+    await asyncio.to_thread(path.unlink)
+    return True
+
+
+def _set_arm_program_status(
+    state: AgentState,
+    *,
+    name: str | None,
+    status: str,
+    current_step: int | None,
+    total_steps: int,
+    current_kind: str | None,
+    message: str | None,
+) -> None:
+    state.arm_program_status = {
+        "name": name,
+        "state": status,
+        "current_step": current_step,
+        "total_steps": total_steps,
+        "current_kind": current_kind,
+        "message": message,
+    }
+
+
+async def _arm_telemetry_payload(state: AgentState) -> dict[str, Any]:
     """Read-only joint angles (deg) per logical joint, served from the drain cache.
 
     ``age_ms`` is the server-computed age of the cached sample (``None`` until the first one),
     so consumers judge staleness without depending on Pi↔client clock agreement.
     """
-    state = request.app[STATE]
     if state.arm is None:
-        return web.json_response(
-            {
-                "ok": True,
-                "enabled": False,
-                "num_joints": 0,
-                "positions": {},
-                "homed": {},
-                "estopped": False,
-                "gripper": None,
-                "pose": None,
-                "ts": 0.0,
-                "age_ms": None,
-            }
-        )
+        return {
+            "ok": True,
+            "enabled": False,
+            "num_joints": 0,
+            "positions": {},
+            "homed": {},
+            "estopped": False,
+            "gripper": None,
+            "pose": None,
+            "program": None,
+            "ts": 0.0,
+            "age_ms": None,
+        }
     ts = state.arm_positions_ts
     age_ms = round((time.time() - ts) * 1000, 1) if ts else None
     grip = state.arm.gripper()
     pose = await _arm_pose(state)
-    return web.json_response(
-        {
-            "ok": True,
-            "enabled": True,
-            "num_joints": state.arm.num_joints,
-            "positions": {str(jid): deg for jid, deg in state.arm_positions.items()},
-            # Per-joint homing + the latch state come from the shared gate state the
-            # /arm/control handler maintains, so the UI's homed indicator + e-stop lockout
-            # reflect real host state (not a guess) across reconnects and multiple clients.
-            "homed": {str(jid): jid in state.arm_homed for jid in range(state.arm.num_joints)},
-            "estopped": state.arm_estopped,
-            # End-effector state (M-ARM-2), drained from the gripper board's `grip` frame.
-            "gripper": {"deg": grip.deg, "tool": grip.tool} if grip is not None else None,
-            # End-effector Cartesian pose (M-ARM-3 FK); None unless the [arm-ik] extra is installed.
-            "pose": pose,
-            "ts": state.arm_positions_ts,
-            "age_ms": age_ms,
-        }
-    )
+    return {
+        "ok": True,
+        "enabled": True,
+        "num_joints": state.arm.num_joints,
+        "positions": {str(jid): deg for jid, deg in state.arm_positions.items()},
+        # Per-joint homing + the latch state come from the shared gate state the
+        # /arm/control handler maintains, so the UI's homed indicator + e-stop lockout
+        # reflect real host state (not a guess) across reconnects and multiple clients.
+        "homed": {str(jid): jid in state.arm_homed for jid in range(state.arm.num_joints)},
+        "estopped": state.arm_estopped,
+        # End-effector state (M-ARM-2), drained from the gripper board's `grip` frame.
+        "gripper": {"deg": grip.deg, "tool": grip.tool} if grip is not None else None,
+        # End-effector Cartesian pose (M-ARM-3 FK); None unless the [arm-ik] extra is installed.
+        "pose": pose,
+        "program": state.arm_program_status,
+        "ts": state.arm_positions_ts,
+        "age_ms": age_ms,
+    }
+
+
+async def handle_arm_telemetry(request: web.Request) -> web.Response:
+    return web.json_response(await _arm_telemetry_payload(request.app[STATE]))
 
 
 _ARM_ACK: dict[str, Any] = {"type": "ack"}
@@ -499,6 +620,7 @@ async def _arm_command(state: AgentState, frame: dict[str, Any]) -> dict[str, An
         # --- whole-arm safety (route straight to ArmManager, no solver code — NFR-1) ---
         if cmd == "estop":
             state.arm_estopped = True  # latch first so it holds even if the send fails
+            state.arm_program_abort.set()
             await asyncio.to_thread(arm.estop)
             return _ARM_ACK
         if cmd == "clear_estop":
@@ -618,6 +740,316 @@ async def _arm_command(state: AgentState, frame: dict[str, Any]) -> dict[str, An
     return _arm_nak(f"unknown command: {cmd!r}")
 
 
+def _arm_program_aborted(state: AgentState) -> bool:
+    return state.arm_program_abort.is_set() or state.arm_estopped
+
+
+async def _run_wait_step(state: AgentState, seconds: float) -> None:
+    remaining = seconds
+    while remaining > 0.0:
+        if _arm_program_aborted(state):
+            return
+        tick = min(0.05, remaining)
+        await asyncio.sleep(tick)
+        remaining -= tick
+
+
+async def _run_movej_step(state: AgentState, pose: RecordedPose, seconds: float) -> None:
+    arm = state.arm
+    gate = state.arm_gate
+    if arm is None or gate is None:
+        raise RuntimeError("no arm configured")
+    current = dict(state.arm_positions)
+    res = gate.move(
+        pose.joints,
+        current,
+        seconds,
+        estopped=state.arm_estopped,
+        homed=state.arm_homed,
+    )
+    if not res.ok:
+        raise RuntimeError(res.reason)
+    if _arm_program_aborted(state):
+        return
+    from pibot.arm.trajectory import joint_trajectory
+
+    frames = joint_trajectory(current, dict(res.targets), seconds=seconds)
+    await asyncio.to_thread(arm.run_trajectory, frames, lambda: _arm_program_aborted(state))
+    if not _arm_program_aborted(state):
+        state.arm_positions.update({int(joint): float(deg) for joint, deg in res.targets.items()})
+        state.arm_positions_ts = time.time()
+
+
+async def _run_movel_step(state: AgentState, pose: RecordedPose, seconds: float) -> None:
+    arm = state.arm
+    gate = state.arm_gate
+    if arm is None or gate is None:
+        raise RuntimeError("no arm configured")
+    if pose.cartesian is None:
+        raise RuntimeError(f"pose {pose.name!r} has no Cartesian target")
+    current_pose = await _arm_pose(state)
+    if current_pose is None:
+        raise RuntimeError("current Cartesian pose unavailable")
+    solver = await _arm_ik(state)
+    if solver is None:
+        raise RuntimeError("IK unavailable: install the [arm-ik] extra / configure a model")
+    from pibot.arm.kinematics import Pose
+    from pibot.arm.trajectory import cartesian_trajectory
+
+    current = dict(state.arm_positions)
+    frames = cartesian_trajectory(
+        current,
+        Pose(**current_pose),
+        Pose(**pose.cartesian),
+        solver=solver,
+        seconds=seconds,
+    )
+    res = gate.move(
+        frames[-1].targets,
+        current,
+        seconds,
+        estopped=state.arm_estopped,
+        homed=state.arm_homed,
+    )
+    if not res.ok:
+        raise RuntimeError(res.reason)
+    if _arm_program_aborted(state):
+        return
+    await asyncio.to_thread(arm.run_trajectory, frames, lambda: _arm_program_aborted(state))
+    if not _arm_program_aborted(state):
+        state.arm_positions.update(
+            {int(joint): float(deg) for joint, deg in frames[-1].targets.items()}
+        )
+        state.arm_positions_ts = time.time()
+
+
+async def _run_arm_program_step(
+    state: AgentState,
+    step: object,
+    poses: dict[str, RecordedPose],
+) -> None:
+    from pibot.arm.programs import ProgramStep
+
+    assert isinstance(step, ProgramStep)
+    arm = state.arm
+    gate = state.arm_gate
+    if step.kind == "moveJ":
+        assert step.pose is not None and step.seconds is not None
+        pose = poses.get(step.pose)
+        if pose is None:
+            raise RuntimeError(f"unknown pose {step.pose!r}")
+        await _run_movej_step(state, pose, step.seconds)
+        return
+    if step.kind == "moveL":
+        assert step.pose is not None and step.seconds is not None
+        pose = poses.get(step.pose)
+        if pose is None:
+            raise RuntimeError(f"unknown pose {step.pose!r}")
+        await _run_movel_step(state, pose, step.seconds)
+        return
+    if step.kind == "wait":
+        assert step.seconds is not None
+        await _run_wait_step(state, step.seconds)
+        return
+    if arm is None or gate is None:
+        raise RuntimeError("no arm configured")
+    if step.kind == "grip":
+        assert step.deg is not None
+        res = gate.grip(step.deg, estopped=state.arm_estopped)
+        if not res.ok:
+            raise RuntimeError(res.reason)
+        if not _arm_program_aborted(state):
+            await asyncio.to_thread(arm.grip, res.args["deg"])
+        return
+    if step.kind == "tool":
+        res = gate.tool(estopped=state.arm_estopped)
+        if not res.ok:
+            raise RuntimeError(res.reason)
+        if not _arm_program_aborted(state):
+            await asyncio.to_thread(arm.tool, bool(step.on))
+        return
+    raise RuntimeError(f"unsupported program step {step.kind!r}")
+
+
+async def _run_arm_program(state: AgentState, program: Program) -> None:
+    steps = list(program.expanded_steps())
+    poses = {pose.name: pose for pose in await _list_poses(state)}
+    _set_arm_program_status(
+        state,
+        name=program.name,
+        status="running",
+        current_step=0,
+        total_steps=len(steps),
+        current_kind=None,
+        message=None,
+    )
+    try:
+        for idx, step in enumerate(steps, start=1):
+            if _arm_program_aborted(state):
+                _set_arm_program_status(
+                    state,
+                    name=program.name,
+                    status="stopped",
+                    current_step=max(1, idx - 1),
+                    total_steps=len(steps),
+                    current_kind=None,
+                    message="e-stop latched" if state.arm_estopped else "stopped",
+                )
+                return
+            _set_arm_program_status(
+                state,
+                name=program.name,
+                status="running",
+                current_step=idx,
+                total_steps=len(steps),
+                current_kind=step.kind,
+                message=None,
+            )
+            await _run_arm_program_step(state, step, poses)
+        _set_arm_program_status(
+            state,
+            name=program.name,
+            status="completed",
+            current_step=len(steps),
+            total_steps=len(steps),
+            current_kind=None,
+            message=None,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface in logs, keep the agent serving
+        _log.warning("arm program %s failed: %s", program.name, exc)
+        _set_arm_program_status(
+            state,
+            name=program.name,
+            status="failed",
+            current_step=state.arm_program_status["current_step"]
+            if isinstance(state.arm_program_status, dict)
+            else None,
+            total_steps=len(steps),
+            current_kind=state.arm_program_status["current_kind"]
+            if isinstance(state.arm_program_status, dict)
+            else None,
+            message=str(exc),
+        )
+    finally:
+        state.arm_program_name = None
+        state.arm_program_task = None
+        state.arm_program_abort.clear()
+
+
+async def handle_arm_pose_list(request: web.Request) -> web.Response:
+    poses = [pose.as_dict() for pose in await _list_poses(request.app[STATE])]
+    return web.json_response({"poses": poses})
+
+
+async def handle_arm_pose_get(request: web.Request) -> web.Response:
+    state = request.app[STATE]
+    try:
+        pose = await _load_pose_record(state, request.match_info["name"])
+    except FileNotFoundError as exc:
+        raise web.HTTPNotFound(text="pose not found") from exc
+    return web.json_response(pose.as_dict())
+
+
+async def handle_arm_pose_post(request: web.Request) -> web.Response:
+    from pibot.arm.programs import Pose as RecordedPose
+    from pibot.arm.programs import record_pose
+
+    state = request.app[STATE]
+    data = await request.json() if request.can_read_body else {}
+    if not isinstance(data, dict):
+        raise web.HTTPBadRequest(text="body must be a JSON object")
+    try:
+        if "pose" in data:
+            raw = data["pose"]
+            if not isinstance(raw, dict):
+                raise web.HTTPBadRequest(text="pose must be a JSON object")
+            pose = RecordedPose.from_dict(raw)
+        else:
+            pose = record_pose(str(data["name"]), await _arm_telemetry_payload(state))
+    except KeyError as exc:
+        raise web.HTTPBadRequest(text=f"pose create needs name: {exc}") from exc
+    except ValueError as exc:
+        raise web.HTTPConflict(text=str(exc)) from exc
+    await _save_pose_record(state, pose)
+    return web.json_response(pose.as_dict(), status=201)
+
+
+async def handle_arm_pose_delete(request: web.Request) -> web.Response:
+    deleted = await _delete_arm_item(request.app[STATE], "poses", request.match_info["name"])
+    if not deleted:
+        raise web.HTTPNotFound(text="pose not found")
+    return web.json_response({"deleted": request.match_info["name"]})
+
+
+async def handle_arm_program_list(request: web.Request) -> web.Response:
+    programs = [program.as_dict() for program in await _list_programs(request.app[STATE])]
+    return web.json_response({"programs": programs})
+
+
+async def handle_arm_program_get(request: web.Request) -> web.Response:
+    state = request.app[STATE]
+    try:
+        program = await _load_program_record(state, request.match_info["name"])
+    except FileNotFoundError as exc:
+        raise web.HTTPNotFound(text="program not found") from exc
+    return web.json_response(program.as_dict())
+
+
+async def handle_arm_program_post(request: web.Request) -> web.Response:
+    from pibot.arm.programs import Program
+
+    state = request.app[STATE]
+    data = await request.json() if request.can_read_body else {}
+    if not isinstance(data, dict):
+        raise web.HTTPBadRequest(text="body must be a JSON object")
+    try:
+        program = Program.from_dict(data)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise web.HTTPBadRequest(text=str(exc)) from exc
+    await _save_program_record(state, program)
+    return web.json_response(program.as_dict(), status=201)
+
+
+async def handle_arm_program_delete(request: web.Request) -> web.Response:
+    deleted = await _delete_arm_item(request.app[STATE], "programs", request.match_info["name"])
+    if not deleted:
+        raise web.HTTPNotFound(text="program not found")
+    return web.json_response({"deleted": request.match_info["name"]})
+
+
+async def handle_arm_program_run(request: web.Request) -> web.Response:
+    state = request.app[STATE]
+    if state.arm_program_task is not None and not state.arm_program_task.done():
+        raise web.HTTPConflict(text="arm program already running")
+    try:
+        program = await _load_program_record(state, request.match_info["name"])
+    except FileNotFoundError as exc:
+        raise web.HTTPNotFound(text="program not found") from exc
+    _set_arm_program_status(
+        state,
+        name=program.name,
+        status="running",
+        current_step=0,
+        total_steps=sum(1 for _ in program.expanded_steps()),
+        current_kind=None,
+        message=None,
+    )
+    state.arm_program_abort.clear()
+    state.arm_program_name = program.name
+    state.arm_program_task = asyncio.create_task(_run_arm_program(state, program))
+    return web.json_response({"running": True, "name": program.name}, status=202)
+
+
+async def handle_arm_program_stop(request: web.Request) -> web.Response:
+    state = request.app[STATE]
+    state.arm_program_abort.set()
+    task = state.arm_program_task
+    if task is not None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    return web.json_response({"stopped": True})
+
+
 async def handle_arm_control(request: web.Request) -> web.StreamResponse:
     """WS /arm/control — motion frames -> host safety gate -> ArmManager, ack/nak per frame.
 
@@ -678,6 +1110,7 @@ def build_app(
     video_max_dim: int = 640,
     arm: ArmManager | None = None,
     arm_gate: ArmGate | None = None,
+    arm_state_dir: Path | None = None,
 ) -> web.Application:
     """Build the full pibotd agent: base app + transport controller + control/telemetry routes."""
     if arm is not None and arm_gate is None:
@@ -696,6 +1129,7 @@ def build_app(
         video_max_dim=video_max_dim,
         arm=arm,
         arm_gate=arm_gate,
+        arm_state_dir=arm_state_dir,
     )
     state.controller = TransportController(
         transport,
@@ -729,6 +1163,10 @@ def build_app(
             await state.autonomy.stop()
         if state.broker is not None:
             await state.broker.stop()
+        state.arm_program_abort.set()
+        if state.arm_program_task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await state.arm_program_task
         if state.arm is not None:
             # Clear the flag and let the loop finish its in-flight recv before closing the
             # transports — so the worker thread never reads a port mid-close.
@@ -751,5 +1189,15 @@ def build_app(
     app.router.add_post("/config", handle_config_post)
     app.router.add_get("/video", handle_ws_video)
     app.router.add_get("/arm/telemetry", handle_arm_telemetry)
+    app.router.add_get("/arm/poses", handle_arm_pose_list)
+    app.router.add_post("/arm/poses", handle_arm_pose_post)
+    app.router.add_get("/arm/poses/{name}", handle_arm_pose_get)
+    app.router.add_delete("/arm/poses/{name}", handle_arm_pose_delete)
+    app.router.add_get("/arm/programs", handle_arm_program_list)
+    app.router.add_post("/arm/programs", handle_arm_program_post)
+    app.router.add_post("/arm/programs/stop", handle_arm_program_stop)
+    app.router.add_get("/arm/programs/{name}", handle_arm_program_get)
+    app.router.add_delete("/arm/programs/{name}", handle_arm_program_delete)
+    app.router.add_post("/arm/programs/{name}/run", handle_arm_program_run)
     app.router.add_get("/arm/control", handle_arm_control)
     return app

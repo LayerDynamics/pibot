@@ -13,8 +13,11 @@ plug in *above* it without changing the firmware contract.
 from __future__ import annotations
 
 import contextlib
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
+from pibot.arm.trajectory import TrajectoryFrame
 from pibot.protocol.codec import (
     DecodeError,
     Message,
@@ -135,6 +138,35 @@ class ArmManager:
                 raise KeyError(f"no current position for joint {joint}")
             dps = abs(float(target) - float(current[joint])) / seconds
             self.jmove(joint, target, dps)
+
+    def run_trajectory(
+        self,
+        frames: Sequence[TrajectoryFrame],
+        abort_check: Callable[[], bool],
+        *,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        """Execute timed absolute targets as paced ``jmove`` segments.
+
+        ``frames[0]`` is the starting snapshot (conventionally ``dt=0``). Each later frame's
+        ``dt`` is the time budget to reach that frame's absolute targets from the prior frame.
+        ``abort_check`` is consulted before each segment so an e-stop / stop can preempt playback.
+        """
+        if not frames:
+            return
+        last = dict(frames[0].targets)
+        for frame in frames[1:]:
+            if abort_check():
+                return
+            if frame.dt <= 0.0:
+                raise ValueError("trajectory frame dt must be positive after the first frame")
+            for joint, target in frame.targets.items():
+                if joint not in last:
+                    raise KeyError(f"trajectory joint {joint} missing from the previous frame")
+                dps = abs(float(target) - float(last[joint])) / frame.dt
+                self.jmove(joint, target, dps)
+            sleep(frame.dt)
+            last = dict(frame.targets)
 
     def jvel(self, joint: int, dps: float) -> None:
         """Jog a joint at a velocity (deg/sec); 0 stops it."""

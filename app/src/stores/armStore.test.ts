@@ -38,6 +38,7 @@ describe("armStore.fetch", () => {
       estopped: true,
       gripper: { deg: 30, tool: true },
       pose: { x: 0.5, y: 0.1, z: 0.3, rx: 0, ry: 0, rz: 0 },
+      program: null,
       ts: 1000,
       age_ms: 120,
     };
@@ -68,6 +69,7 @@ describe("armStore.fetch", () => {
       estopped: false,
       gripper: null,
       pose: null,
+      program: null,
       ts: 1,
       age_ms: 1500,
     };
@@ -88,6 +90,7 @@ describe("armStore.fetch", () => {
       estopped: false,
       gripper: null,
       pose: null,
+      program: null,
       ts: 0,
       age_ms: null,
     };
@@ -120,6 +123,34 @@ describe("armStore.fetch", () => {
 
     expect(useArmStore.getState().error).toContain("network down");
   });
+
+  it("stores running program progress from telemetry", async () => {
+    const body: ArmTelemetry = {
+      ok: true,
+      enabled: true,
+      num_joints: 1,
+      positions: { "0": 5 },
+      homed: { "0": true },
+      estopped: false,
+      gripper: null,
+      pose: null,
+      program: {
+        name: "pick",
+        state: "running",
+        current_step: 2,
+        total_steps: 3,
+        current_kind: "wait",
+        message: null,
+      },
+      ts: 1,
+      age_ms: 20,
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(body));
+
+    await useArmStore.getState().fetch(FAKE_EP);
+
+    expect(useArmStore.getState().programStatus).toEqual(body.program);
+  });
 });
 
 function ackResponse(): Response {
@@ -128,6 +159,15 @@ function ackResponse(): Response {
     status: 200,
     json: async () => ({ type: "ack" }),
     text: async () => '{"type":"ack"}',
+  } as Response;
+}
+
+function jsonBody<T>(body: T, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
   } as Response;
 }
 
@@ -270,5 +310,59 @@ describe("armStore motion actions", () => {
     await useArmStore.getState().estop(FAKE_EP);
     expect(useArmStore.getState().estopped).toBe(false);
     expect(useArmStore.getState().error).toContain("503");
+  });
+
+  it("poseSave POSTs the name to /api/arm/poses", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(jsonBody({ name: "ready", joints: { "0": 1 } }, 201));
+    await useArmStore.getState().poseSave(FAKE_EP, "ready");
+    const call = lastCall(spy);
+    expect(call.url).toContain("/api/arm/poses");
+    expect(call.body).toEqual({ name: "ready" });
+  });
+
+  it("fetchPoses stores the returned pose list", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      jsonBody({
+        poses: [
+          { name: "home", joints: { "0": 0 }, created: 1 },
+          { name: "ready", joints: { "0": 10 }, created: 2 },
+        ],
+      }),
+    );
+    await useArmStore.getState().fetchPoses(FAKE_EP);
+    expect(useArmStore.getState().poses.map((pose) => pose.name)).toEqual(["home", "ready"]);
+  });
+
+  it("saveProgram POSTs the program and fetchPrograms stores the returned list", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        jsonBody({ name: "pick", steps: [{ kind: "wait", seconds: 0.1 }] }, 201),
+      )
+      .mockResolvedValueOnce(
+        jsonBody({
+          programs: [{ name: "pick", steps: [{ kind: "wait", seconds: 0.1 }] }],
+        }),
+      );
+    await useArmStore
+      .getState()
+      .saveProgram(FAKE_EP, { name: "pick", steps: [{ kind: "wait", seconds: 0.1 }] });
+    expect(lastCall(spy).url).toContain("/api/arm/programs");
+
+    await useArmStore.getState().fetchPrograms(FAKE_EP);
+    expect(useArmStore.getState().programs.map((program) => program.name)).toEqual(["pick"]);
+  });
+
+  it("runProgram and stopProgram POST to the right routes", async () => {
+    const spy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonBody({ running: true, name: "pick" }, 202))
+      .mockResolvedValueOnce(jsonBody({ stopped: true }));
+    await useArmStore.getState().runProgram(FAKE_EP, "pick");
+    expect(lastCall(spy).url).toContain("/api/arm/programs/pick/run");
+    await useArmStore.getState().stopProgram(FAKE_EP);
+    expect(lastCall(spy).url).toContain("/api/arm/programs/stop");
   });
 });

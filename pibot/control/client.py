@@ -64,6 +64,67 @@ class AgentClient:
             data: dict[str, Any] = await resp.json()
             return data
 
+    async def arm_pose_list(self) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.get(self._base + "/arm/poses") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_pose_save(self, name: str, pose: dict[str, Any] | None = None) -> dict[str, Any]:
+        assert self._session is not None
+        payload: dict[str, Any] = {"name": name} if pose is None else {"pose": pose}
+        async with self._session.post(self._base + "/arm/poses", json=payload) as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_pose_get(self, name: str) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.get(self._base + f"/arm/poses/{name}") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_pose_delete(self, name: str) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.delete(self._base + f"/arm/poses/{name}") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_program_list(self) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.get(self._base + "/arm/programs") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_program_save(self, program: dict[str, Any]) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.post(self._base + "/arm/programs", json=program) as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_program_get(self, name: str) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.get(self._base + f"/arm/programs/{name}") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_program_delete(self, name: str) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.delete(self._base + f"/arm/programs/{name}") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_program_run(self, name: str) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.post(self._base + f"/arm/programs/{name}/run") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
+    async def arm_program_stop(self) -> dict[str, Any]:
+        assert self._session is not None
+        async with self._session.post(self._base + "/arm/programs/stop") as resp:
+            data: dict[str, Any] = await resp.json()
+            return data
+
     # ---- arm motion (WS /arm/control) ---------------------------------------------------
     # Each call sends one frame over a lazily-opened, persistent ``/arm/control`` socket and
     # returns the agent's per-frame reply (``{"type": "ack"}`` or ``{"type": "nak", "reason"}``).

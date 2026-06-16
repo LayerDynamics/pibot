@@ -27,6 +27,8 @@ READ = {
     "agent logs",
     "agent token",
     "arm telemetry",
+    "arm pose-list",
+    "arm program-list",
 }
 INTERACTIVE = {"run", "connect", "tunnel", "teleop"}
 # `autonomy` is state-changing: its closed-loop `--run` mode actuates the robot through the
@@ -60,8 +62,11 @@ STATE_CHANGING = {
     "arm enable",
     "arm disable",
     "arm pose",
+    "arm pose-save",
     "arm grip",
     "arm tool",
+    "arm program-run",
+    "arm program-stop",
 }
 # META = local-only / reversible operations deliberately exempt from --dry-run:
 # inventory edits write local metadata (trivially reversible), firmware build compiles
