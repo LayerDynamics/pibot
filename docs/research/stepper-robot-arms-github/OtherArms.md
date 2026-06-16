@@ -275,11 +275,16 @@ missing pieces.
    danieljhand (save/recall), manuel (teach-by-backdrive), charm (per-square tables), faze4 (waypoint
    arrays).
 
-4. **No kinematic model / geometry artifact wired into the tree.** PiBot deliberately treats these
-   repos as *geometry donors*, but **no URDF or DH table is yet present in the PiBot tree** —
-   `sizing.py` takes link lengths for *torque/CAD* math, not a kinematic chain. This is the concrete
-   bridge between the "reuse geometry" intent and actually shipping IK/FK/sim (§6A, §9). Until a
-   model lands, A.5 cannot start.
+4. **No kinematic model / geometry artifact wired into the tree.** ✅ **SHIPPED (M-ARM-3,
+   2026-06-16).** An in-tree 6-DOF URDF (`pibot/arm/geometry/pibot_arm.urdf`) **generated from the
+   sizing config** — so the model, the firmware `JCFG`, and `sizing.py` share one source of truth
+   (anti-drift): `sizing.emit_urdf` / `python -m pibot.arm.sizing <config> --emit-urdf`. Forward
+   kinematics (`ForwardKinematics` in `pibot/arm/kinematics.py`, ikpy behind the lazy `pibot[arm-ik]`
+   extra) turns joint angles → end-effector pose, surfaced in `/arm/telemetry`, `pibot arm telemetry`,
+   and the Arm screen. The 6R joint-axis convention credits the **MIT AR3** arm (no donor files copied;
+   `pibot/arm/geometry/README.md`). This unblocks IK (M-ARM-4), Cartesian paths (M-ARM-5), and the twin
+   (M-ARM-6). *(Originally: no URDF/DH in-tree; `sizing.py` had link lengths for torque/CAD only, not a
+   kinematic chain — A.5 was blocked.)*
 
 5. **No 3D visualization / digital twin.** `Arm.tsx` shows joint-angle bars only. The most relevant
    comparators render the live pose: 6ar (in-browser URDF twin via `urdf-loader`+three.js — and
@@ -380,8 +385,9 @@ GPL/AGPL/CC-BY-SA/CERN-OHL; reference-only for no-license):
   `r=[47,110,26,0,0,0] d=[133,0,0,117.5,0,28]`; mariohany `a=[37.5,160,15,0,0,0]
   d=[135.8,0,0,138.1,0,28.2]`; parol6 `a1=110.5,a2=23.42,a3=180,a4=43.5,a5=176.35`.
 
-**Prerequisite for all of the above (gap §6B-4):** land *one* geometry artifact (a re-derived URDF or
-DH table) in the PiBot tree first — that single step unblocks IK, FK, and a 3D twin together.
+**Prerequisite for all of the above (gap §6B-4): ✅ landed in M-ARM-3** — the in-tree 6-DOF URDF
+(`pibot/arm/geometry/`, generated from the sizing config) now unblocks IK (M-ARM-4), FK (shipped),
+and the 3D twin (M-ARM-6) together.
 
 ---
 
@@ -393,7 +399,8 @@ Observations on how the §6B gaps depend on each other, so they aren't read as f
   shipped (M-ARM-1).** Firmware + `ArmManager` motion verbs were built and unit-tested but unwired;
   M-ARM-1 wired them end-to-end behind a host safety gate, so this is no longer a gap. The remaining
   §6B items below still need new logic.
-- **One geometry artifact (§6B-4) is the shared prerequisite for three gaps at once:** IK (plan A.5),
+- **One geometry artifact (§6B-4, shipped in M-ARM-3) was the shared prerequisite for three gaps at
+  once:** IK (plan A.5),
   FK, and a 3D twin (§6B-5) all block on a URDF/DH model being present in-tree. It is the single
   highest-fan-out missing piece, and the donor corpus exists precisely to supply it (§9).
 - **Gripper (§6B-2, now shipped in M-ARM-2) and teach/playback (§6B-3) are largely independent** of

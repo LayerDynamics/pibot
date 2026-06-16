@@ -37,6 +37,7 @@ describe("armStore.fetch", () => {
       homed: { "0": true, "1": false, "2": false },
       estopped: true,
       gripper: { deg: 30, tool: true },
+      pose: { x: 0.5, y: 0.1, z: 0.3, rx: 0, ry: 0, rz: 0 },
       ts: 1000,
       age_ms: 120,
     };
@@ -51,6 +52,7 @@ describe("armStore.fetch", () => {
     expect(s.homed).toEqual({ "0": true, "1": false, "2": false });
     expect(s.estopped).toBe(true);
     expect(s.gripper).toEqual({ deg: 30, tool: true });
+    expect(s.pose).toEqual({ x: 0.5, y: 0.1, z: 0.3, rx: 0, ry: 0, rz: 0 });
     expect(s.loaded).toBe(true);
     expect(s.stale).toBe(false);
     expect(s.error).toBeNull();
@@ -65,6 +67,7 @@ describe("armStore.fetch", () => {
       homed: { "0": true },
       estopped: false,
       gripper: null,
+      pose: null,
       ts: 1,
       age_ms: 1500,
     };
@@ -84,6 +87,7 @@ describe("armStore.fetch", () => {
       homed: {},
       estopped: false,
       gripper: null,
+      pose: null,
       ts: 0,
       age_ms: null,
     };

@@ -47,7 +47,8 @@ robot.
    is the **sole owner** of the transport. Bearer-token auth on every route except
    `/healthz`. Endpoints: `/health`, `/telemetry` (snapshot + WS push), `/control` (WS
    command frames → safety → ack/nak), `/estop`, `/config`, `/video`, `/arm/telemetry`
-   (read-only stepper-arm joint angles + per-joint homed + e-stop + gripper state), `/arm/control`
+   (read-only stepper-arm joint angles + per-joint homed + e-stop + gripper state + FK end-effector
+   pose when `[arm-ik]` is installed), `/arm/control`
    (WS motion frames — joints, `grip`/`tool` end-effector — through the host arm safety gate →
    `ArmManager`, when an arm is configured). Closed-loop
    autonomy (`agent/autonomy.py`) and the camera broker (`agent/video.py`) run **in-process** here.
@@ -171,7 +172,10 @@ Rust gate — macOS because Tauri's Rust build needs the platform webview).
 - **No-hardware development is the default.** Use the `responder`/`loopback` transports and
   `pibot/control/echo.py`; never make the standard test gate depend on real hardware.
 - **Keep the `[ml]` boundary intact.** The CLI and `agent` core must never import `pibot.ml`
-  / numpy / opencv at module load — those deps exist only on the robot.
+  / numpy / opencv at module load — those deps exist only on the robot. The same rule covers the arm
+  kinematics extra (`[arm-ik]`: ikpy/numpy/scipy): `pibot.arm.geometry` is pure-stdlib XML, and
+  `pibot.arm.kinematics` lazy-imports ikpy inside `ForwardKinematics` — the model is generated from
+  the sizing config (`pibot/arm/geometry/`, FK/IK in `pibot/arm/kinematics.py`).
 - **The sidecar is loopback-only and the link layer is delegated, not duplicated** — new MC
   features add a `routes_*.py` module and reuse `AgentClient`, they don't open their own
   robot connection.

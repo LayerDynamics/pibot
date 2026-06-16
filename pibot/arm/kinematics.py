@@ -16,7 +16,9 @@ this exact interface once that geometry is known — no firmware or manager chan
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
 _Intent = TypeVar("_Intent", contravariant=True)
@@ -65,3 +67,88 @@ class NamedPoseSolver:
             return dict(self._poses[target])
         except KeyError as exc:
             raise KeyError(f"unknown pose {target!r}; known: {self.names}") from exc
+
+
+# ---- Forward kinematics (M-ARM-3) ----------------------------------------------------------------
+# The numeric solver (ikpy + numpy) is **lazy-imported** inside the methods below so that importing
+# this module stays numpy-free (NFR-2). FK needs the optional ``pibot[arm-ik]`` extra installed.
+
+
+@dataclass(frozen=True)
+class Pose:
+    """End-effector pose: position (m) + orientation as roll/pitch/yaw (XYZ fixed-axis) radians."""
+
+    x: float
+    y: float
+    z: float
+    rx: float
+    ry: float
+    rz: float
+
+    def as_dict(self) -> dict[str, float]:
+        return {"x": self.x, "y": self.y, "z": self.z, "rx": self.rx, "ry": self.ry, "rz": self.rz}
+
+
+def _rpy_from_matrix(m: object) -> tuple[float, float, float]:
+    """Extract roll/pitch/yaw (XYZ fixed-axis) from a 4x4 homogeneous transform's rotation block."""
+
+    def at(i: int, j: int) -> float:
+        return float(m[i][j])  # type: ignore[index]  # numpy array or nested sequence
+
+    sy = math.hypot(at(0, 0), at(1, 0))
+    if sy > 1e-6:
+        return (
+            math.atan2(at(2, 1), at(2, 2)),
+            math.atan2(-at(2, 0), sy),
+            math.atan2(at(1, 0), at(0, 0)),
+        )
+    return math.atan2(-at(1, 2), at(1, 1)), math.atan2(-at(2, 0), sy), 0.0
+
+
+class ForwardKinematics:
+    """Joint angles → end-effector :class:`Pose` via the in-tree geometry model and an ikpy chain.
+
+    Loads ``pibot.arm.geometry``'s URDF into an ``ikpy.chain.Chain`` once at construction (ikpy +
+    numpy imported lazily here). :meth:`solve` maps PiBot logical joint ids (degrees) to the chain's
+    radian inputs — joints absent from the input default to 0°.
+    """
+
+    def __init__(self, model: object | None = None) -> None:
+        from ikpy.chain import Chain  # lazy: needs the `[arm-ik]` extra
+
+        from pibot.arm import geometry
+
+        loaded = model if model is not None else geometry.load()
+
+        # Infer the number of logical joints from the loaded arm model.
+        self._n = len(loaded.joints)  # type: ignore[attr-defined]
+
+        # Build an active-links mask that treats only the arm joints as actuated,
+        # assuming a fixed base and tool link. This assumption is checked below.
+        mask = [False] + [True] * self._n + [False]
+
+        self._chain = Chain.from_urdf_file(
+            str(loaded.urdf_path),  # type: ignore[attr-defined]
+            active_links_mask=mask,
+        )
+
+        # Fail fast if the URDF layout doesn't match the mask (fixed base + n joints + tool); an
+        # extra fixed link (mount/sensor) would otherwise mis-align which links ikpy treats as
+        # actuated and silently corrupt the kinematics.
+        if len(self._chain.links) != self._n + 2:
+            raise ValueError(
+                f"incompatible URDF chain: expected {self._n + 2} links "
+                f"(fixed base + {self._n} joints + tool), got {len(self._chain.links)}"
+            )
+
+    @property
+    def num_joints(self) -> int:
+        return self._n
+
+    def solve(self, joint_angles_deg: Mapping[int, float]) -> Pose:
+        """Forward kinematics for ``{logical joint id: degrees}`` → end-effector :class:`Pose`."""
+        angles = [0.0] * len(self._chain.links)
+        for i in range(self._n):
+            angles[1 + i] = math.radians(float(joint_angles_deg.get(i, 0.0)))
+        m = self._chain.forward_kinematics(angles)
+        return Pose(float(m[0][3]), float(m[1][3]), float(m[2][3]), *_rpy_from_matrix(m))

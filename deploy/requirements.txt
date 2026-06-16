@@ -3,6 +3,7 @@
 pyserial>=3.5
 aiohttp>=3.9
 psutil>=5.9
+defusedxml>=0.7   # hardened URDF parsing in pibot.arm.geometry (M-ARM-3)
 
 # Wireless transports (optional; uncomment per robot hardware):
 #   bleak>=0.21    # BLE (Nordic-UART style) — BleTransport

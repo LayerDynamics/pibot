@@ -101,6 +101,9 @@ export interface ArmTelemetry {
   estopped: boolean;
   /** End-effector state (servo angle + tool digital-out), or null when none is configured/reported. */
   gripper: { deg: number; tool: boolean } | null;
+  /** Forward-kinematics end-effector pose (position m, orientation rad), or null without the
+   * `[arm-ik]` extra / no joint angles yet. */
+  pose: { x: number; y: number; z: number; rx: number; ry: number; rz: number } | null;
   ts: number;
   /** Server-computed age of the cached sample in ms (null until the first sample). */
   age_ms: number | null;

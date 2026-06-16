@@ -1,5 +1,15 @@
 # Plan — M-ARM-3: Kinematic model + Forward kinematics (SPEC-4)
 
+> **Status: ✅ Shipped (2026-06-16).** Tasks 3.1–3.5 complete: in-tree 6-DOF URDF generated from the
+> sizing config (`pibot/arm/geometry/`, no donor file copied — AR3 6R convention credited),
+> `ForwardKinematics` (ikpy behind the lazy `pibot[arm-ik]` extra; arm core stays numpy-free),
+> `sizing.emit_urdf` / `--emit-urdf` (one source of truth), and FK pose in `/arm/telemetry` + `pibot
+> arm telemetry` + the Arm screen (absent without `[arm-ik]`, never a crash). `scripts/check.sh` +
+> desktop gate green. **Note:** the FK tests are `importorskip("ikpy")`-guarded — they run locally
+> (ikpy installed) but **skip in CI until M-ARM-4 task 4.1 adds the `[arm-ik]` install** to the gate;
+> the rest of the milestone (geometry load, sizing emit, numpy-free import guard) is gate-verified.
+> Dimensions are sizing-default `⬜ TUNE` placeholders until the built arm is measured.
+>
 > **For Claude:** execute with `lore:execute`. **TDD mandatory** (failing test first → implement →
 > `scripts/check.sh` green). Shared decisions/discipline/invariants: see the
 > [plan index](./2026-06-15-spec4-robot-arm-implementation.md). **Ask before any `git` commit.**
@@ -8,8 +18,10 @@
 
 Land a kinematic model in the tree and compute forward kinematics (joint angles → end-effector pose).
 This is the single highest-fan-out milestone: it unblocks IK (M-ARM-4), Cartesian trajectories
-(M-ARM-5), and the 3-D twin (M-ARM-6). Per the locked decision, the model **vendors an MIT donor URDF**
-(AR3 6-DOF / Moveo 5-DOF) adapted to PiBot's link lengths.
+(M-ARM-5), and the 3-D twin (M-ARM-6). **As shipped** (refining the locked "vendor a donor URDF"
+decision after the 3.1 discovery), the model is **generated from the sizing config** — one source of
+truth, no donor file copied — **crediting the MIT AR3 6-DOF joint-axis convention**; link lengths come
+from config (`⬜ TUNE` until the built arm is measured).
 
 ## Realizes
 

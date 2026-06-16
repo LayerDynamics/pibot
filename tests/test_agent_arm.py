@@ -133,6 +133,7 @@ def test_arm_telemetry_disabled_when_no_arm() -> None:
             assert d["homed"] == {}
             assert d["estopped"] is False
             assert d["gripper"] is None
+            assert d["pose"] is None
 
     _run(body())
 
@@ -516,6 +517,51 @@ def test_arm_telemetry_includes_gripper_state() -> None:
                     break
                 await asyncio.sleep(0.02)
             assert gripper == {"deg": 55.0, "tool": True}
+
+    _run(body())
+
+
+# ---- M-ARM-3 task 3.4: forward-kinematics pose in /arm/telemetry ------------
+
+
+def test_arm_telemetry_pose_present_with_model() -> None:
+    pytest.importorskip("ikpy")  # needs the optional [arm-ik] extra
+
+    async def body() -> None:
+        fake = FakeArmTransport([10.0, 20.0, 30.0, 0.0, 0.0, 0.0])
+        arm = ArmManager([fake], linear_joint_map([6]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        async with TestClient(TestServer(app)) as c:
+            pose = None
+            for _ in range(40):
+                d = await (await c.get("/arm/telemetry")).json()
+                if d["pose"] is not None:
+                    pose = d["pose"]
+                    break
+                await asyncio.sleep(0.02)
+            assert pose is not None, "FK pose never appeared"
+            assert set(pose) == {"x", "y", "z", "rx", "ry", "rz"}
+            assert all(isinstance(v, (int, float)) for v in pose.values())
+
+    _run(body())
+
+
+def test_arm_telemetry_pose_absent_without_the_extra() -> None:
+    """When the FK model/ikpy isn't available the pose is cleanly absent — never a crash."""
+
+    async def body() -> None:
+        fake = FakeArmTransport([10.0, 20.0, 30.0])
+        arm = ArmManager([fake], linear_joint_map([3]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        async with TestClient(TestServer(app)) as c:
+            # Simulate "no [arm-ik] extra": the build was tried and produced no chain.
+            from agent.app import STATE
+
+            app[STATE].arm_fk = None
+            app[STATE].arm_fk_tried = True
+            d = await (await c.get("/arm/telemetry")).json()
+            assert d["enabled"] is True
+            assert d["pose"] is None
 
     _run(body())
 

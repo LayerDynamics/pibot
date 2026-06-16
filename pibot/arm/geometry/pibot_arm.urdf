@@ -1,0 +1,124 @@
+<?xml version="1.0"?>
+<robot name="pibot_arm">
+  <link name="base_link" />
+  <joint name="base" type="revolute">
+    <parent link="base_link" />
+    <child link="link_0" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit lower="-3.141593" upper="3.141593" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_0">
+    <visual>
+      <origin xyz="0 0 0.05" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.1" radius="0.02" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.1" />
+      <inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3" />
+    </inertial>
+  </link>
+  <joint name="shoulder" type="revolute">
+    <parent link="link_0" />
+    <child link="link_1" />
+    <origin xyz="0 0 0.1" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.570796" upper="1.570796" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_1">
+    <visual>
+      <origin xyz="0 0 0.09" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.18" radius="0.02" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.1" />
+      <inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3" />
+    </inertial>
+  </link>
+  <joint name="elbow" type="revolute">
+    <parent link="link_1" />
+    <child link="link_2" />
+    <origin xyz="0 0 0.18" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.356194" upper="2.356194" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_2">
+    <visual>
+      <origin xyz="0 0 0.08" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.16" radius="0.02" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.1" />
+      <inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3" />
+    </inertial>
+  </link>
+  <joint name="wrist_roll" type="revolute">
+    <parent link="link_2" />
+    <child link="link_3" />
+    <origin xyz="0 0 0.16" rpy="0 0 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-3.141593" upper="3.141593" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_3">
+    <visual>
+      <origin xyz="0 0 0.03" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.02" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.1" />
+      <inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3" />
+    </inertial>
+  </link>
+  <joint name="wrist_pitch" type="revolute">
+    <parent link="link_3" />
+    <child link="link_4" />
+    <origin xyz="0 0 0.06" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.570796" upper="1.570796" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_4">
+    <visual>
+      <origin xyz="0 0 0.03" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.06" radius="0.02" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.1" />
+      <inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3" />
+    </inertial>
+  </link>
+  <joint name="tool_roll" type="revolute">
+    <parent link="link_4" />
+    <child link="link_5" />
+    <origin xyz="0 0 0.06" rpy="0 0 0" />
+    <axis xyz="1 0 0" />
+    <limit lower="-3.141593" upper="3.141593" effort="10" velocity="3.14" />
+  </joint>
+  <link name="link_5">
+    <visual>
+      <origin xyz="0 0 0.04" rpy="0 0 0" />
+      <geometry>
+        <cylinder length="0.08" radius="0.02" />
+      </geometry>
+    </visual>
+    <inertial>
+      <mass value="0.1" />
+      <inertia ixx="1e-3" ixy="0" ixz="0" iyy="1e-3" iyz="0" izz="1e-3" />
+    </inertial>
+  </link>
+  <joint name="tool" type="fixed">
+    <parent link="link_5" />
+    <child link="tool0" />
+    <origin xyz="0 0 0.08" rpy="0 0 0" />
+  </joint>
+  <link name="tool0" />
+</robot>
