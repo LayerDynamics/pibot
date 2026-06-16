@@ -27,6 +27,14 @@ interface ArmState {
   enable: (ep: McEndpoint, on: boolean) => Promise<void>;
   grip: (ep: McEndpoint, deg: number) => Promise<void>;
   tool: (ep: McEndpoint, on: boolean) => Promise<void>;
+  moveCartesian: (
+    ep: McEndpoint,
+    x: number,
+    y: number,
+    z: number,
+    seconds: number,
+    orientation?: { rx?: number; ry?: number; rz?: number },
+  ) => Promise<void>;
   reset: () => void;
 }
 
@@ -149,6 +157,18 @@ export const useArmStore = create<ArmState>((set) => ({
 
   tool: async (ep, on) => {
     await motion(set, ep, "/api/arm/tool", { on });
+  },
+
+  moveCartesian: async (ep, x, y, z, seconds, orientation) => {
+    await motion(set, ep, "/api/arm/move-cartesian", {
+      x,
+      y,
+      z,
+      seconds,
+      rx: orientation?.rx ?? 0,
+      ry: orientation?.ry ?? 0,
+      rz: orientation?.rz ?? 0,
+    });
   },
 
   reset: () => set({ ...EMPTY }),

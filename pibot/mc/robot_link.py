@@ -170,6 +170,21 @@ class RobotLink:
             raise RuntimeError("not connected")
         return await self._client.arm_tool(on)
 
+    async def arm_move_cartesian(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        seconds: float,
+        *,
+        rx: float = 0.0,
+        ry: float = 0.0,
+        rz: float = 0.0,
+    ) -> dict[str, Any]:
+        if self._client is None:
+            raise RuntimeError("not connected")
+        return await self._client.arm_move_cartesian(x, y, z, seconds, rx=rx, ry=ry, rz=rz)
+
     async def autonomy_start(
         self,
         *,

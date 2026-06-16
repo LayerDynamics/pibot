@@ -135,4 +135,31 @@ describe("Arm screen controls", () => {
     render(<Arm ep={EP} />);
     expect(screen.queryByTestId("arm-ee-pose")).toBeNull();
   });
+
+  it("renders the Cartesian move panel only when a pose is present, and drives moveCartesian", () => {
+    const moveCartesian = vi.fn().mockResolvedValue(undefined);
+    seed({ moveCartesian });
+    render(<Arm ep={EP} />);
+
+    fireEvent.change(screen.getByTestId("arm-xyz-x"), { target: { value: "300" } });
+    fireEvent.change(screen.getByTestId("arm-xyz-y"), { target: { value: "0" } });
+    fireEvent.change(screen.getByTestId("arm-xyz-z"), { target: { value: "400" } });
+    fireEvent.change(screen.getByTestId("arm-xyz-seconds"), { target: { value: "1.5" } });
+    fireEvent.click(screen.getByTestId("arm-xyz-go"));
+
+    // mm -> m conversion happens at the UI boundary.
+    expect(moveCartesian).toHaveBeenLastCalledWith(EP, 0.3, 0, 0.4, 1.5);
+  });
+
+  it("hides the Cartesian panel when no FK pose is available", () => {
+    seed({ pose: null });
+    render(<Arm ep={EP} />);
+    expect(screen.queryByTestId("arm-cartesian")).toBeNull();
+  });
+
+  it("disables the Cartesian Go button while e-stop is latched", () => {
+    seed({ estopped: true });
+    render(<Arm ep={EP} />);
+    expect(screen.getByTestId("arm-xyz-go")).toBeDisabled();
+  });
 });

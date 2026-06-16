@@ -53,6 +53,7 @@ STATE_CHANGING = {
     "arm jog",
     "arm move",
     "arm move-all",
+    "arm move-xyz",
     "arm home",
     "arm estop",
     "arm clear",

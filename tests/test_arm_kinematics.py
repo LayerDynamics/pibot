@@ -70,6 +70,19 @@ def test_solver_output_drives_move_synchronized() -> None:
     assert decode(t1.sent[0], "ascii").args["dps"] == pytest.approx(45.0)
 
 
+# ---- M-ARM-4 task 4.1: the `arm-ik` extra is present in the gate's test env ----
+
+
+def test_arm_ik_extra_is_installed_in_the_test_env() -> None:
+    """The gate installs `pibot[arm-ik]` (ikpy) so the FK/IK tests RUN here rather than
+    importorskip-skipping — keeping the suite hermetic with zero skips (CLAUDE.md). A clean
+    failure here points straight at the fix: `pip install -e '.[arm-ik]'`."""
+    try:
+        import ikpy.chain  # noqa: F401  — the symbol IKSolver/ForwardKinematics actually use
+    except ImportError as exc:  # pragma: no cover - only reached when the extra is missing
+        pytest.fail(f"ikpy missing — run: pip install -e '.[arm-ik]' ({exc})")
+
+
 # ---- M-ARM-3 task 3.2: forward kinematics (needs the optional `arm-ik` extra) ----
 
 
@@ -128,6 +141,69 @@ def test_fk_base_yaw_orients_the_tool_frame() -> None:
     assert pose.rz == pytest.approx(math.pi / 2, abs=1e-6)  # yaw = 90°
     assert pose.rx == pytest.approx(0.0, abs=1e-6)
     assert pose.ry == pytest.approx(0.0, abs=1e-6)
+
+
+# ---- M-ARM-4 task 4.2: inverse kinematics behind the JointSolver seam ----
+
+
+def test_iksolver_round_trips_a_reachable_pose() -> None:
+    """FK∘IK ≈ identity: IK-solving the pose FK produced reproduces that pose (within tolerance).
+    The joint angles may differ (IK can pick another branch); the achieved EE pose must match."""
+    pytest.importorskip("ikpy")
+    from pibot.arm.kinematics import ForwardKinematics, IKSolver
+
+    fk = ForwardKinematics()
+    ik = IKSolver()
+    assert ik.num_joints == 6
+    target_joints = {1: 30.0, 2: -25.0, 4: 20.0}
+    pose = fk.solve(target_joints)
+
+    solved = ik.solve(pose)
+    assert set(solved) == set(range(6))  # one angle per logical joint
+
+    achieved = fk.solve(solved)
+    assert achieved.x == pytest.approx(pose.x, abs=2e-3)
+    assert achieved.y == pytest.approx(pose.y, abs=2e-3)
+    assert achieved.z == pytest.approx(pose.z, abs=2e-3)
+    assert achieved.rx == pytest.approx(pose.rx, abs=2e-2)
+    assert achieved.ry == pytest.approx(pose.ry, abs=2e-2)
+    assert achieved.rz == pytest.approx(pose.rz, abs=2e-2)
+
+
+def test_iksolver_keeps_every_joint_within_its_limit() -> None:
+    """A solved configuration never violates a joint limit (SPEC R5) — the solver must not emit
+    motor targets outside the URDF travel range."""
+    pytest.importorskip("ikpy")
+    from pibot.arm import geometry
+    from pibot.arm.kinematics import ForwardKinematics, IKSolver
+
+    model = geometry.load()
+    fk = ForwardKinematics()
+    ik = IKSolver()
+    solved = ik.solve(fk.solve({0: 40.0, 1: 35.0, 2: -30.0, 5: 50.0}))
+    for jid, deg in solved.items():
+        lo, hi = model.joints[jid].min_deg, model.joints[jid].max_deg
+        assert lo - 1e-3 <= deg <= hi + 1e-3, f"J{jid}={deg} outside [{lo}, {hi}]"
+
+
+def test_iksolver_rejects_an_unreachable_pose() -> None:
+    """A pose far outside the workspace must raise (never emit an unclamped best-effort result)."""
+    pytest.importorskip("ikpy")
+    from pibot.arm.kinematics import IKSolver, Pose
+
+    ik = IKSolver()
+    with pytest.raises(ValueError):
+        ik.solve(Pose(x=10.0, y=0.0, z=0.0, rx=0.0, ry=0.0, rz=0.0))
+
+
+def test_iksolver_is_a_jointsolver() -> None:
+    """IKSolver satisfies the JointSolver seam, so its output drives ArmManager unchanged."""
+    pytest.importorskip("ikpy")
+    from pibot.arm.kinematics import ForwardKinematics, IKSolver, JointSolver
+
+    solver: JointSolver[object] = IKSolver()
+    targets = solver.solve(ForwardKinematics().solve({1: 20.0}))
+    assert all(isinstance(v, float) for v in targets.values())
 
 
 def test_rpy_from_matrix_handles_the_gimbal_lock_singularity() -> None:

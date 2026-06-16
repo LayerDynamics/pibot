@@ -221,6 +221,39 @@ describe("armStore motion actions", () => {
     expect(call.body).toEqual({ on: true });
   });
 
+  it("moveCartesian POSTs position+seconds to /api/arm/move-cartesian, orientation defaults to 0", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().moveCartesian(FAKE_EP, 0.3, 0.0, 0.4, 1.5);
+    const call = lastCall(spy);
+    expect(call.url).toContain("/api/arm/move-cartesian");
+    expect(call.method).toBe("POST");
+    expect(call.body).toEqual({ x: 0.3, y: 0.0, z: 0.4, seconds: 1.5, rx: 0, ry: 0, rz: 0 });
+  });
+
+  it("moveCartesian includes a given orientation", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().moveCartesian(FAKE_EP, 0.1, 0.2, 0.3, 1.0, {
+      rx: 0.1,
+      ry: 0.2,
+      rz: 0.3,
+    });
+    expect(lastCall(spy).body).toEqual({
+      x: 0.1,
+      y: 0.2,
+      z: 0.3,
+      seconds: 1.0,
+      rx: 0.1,
+      ry: 0.2,
+      rz: 0.3,
+    });
+  });
+
+  it("moveCartesian surfaces an 'unreachable' nak as an error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(nakResponse("unreachable: pose ..."));
+    await useArmStore.getState().moveCartesian(FAKE_EP, 10, 0, 0, 1.0);
+    expect(useArmStore.getState().error).toContain("unreachable");
+  });
+
   it("surfaces a host-gate nak as an error and does not latch on a refused estop", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(nakResponse("joint 0 not homed"));
     await useArmStore.getState().moveJoint(FAKE_EP, 0, 10);

@@ -94,6 +94,29 @@ async def handle_arm_move_all(request: web.Request) -> web.Response:
     return web.json_response(result)
 
 
+async def handle_arm_move_cartesian(request: web.Request) -> web.Response:
+    """POST /api/arm/move-cartesian — Cartesian end-effector move via on-Pi IK:
+    ``{x, y, z, seconds, rx?, ry?, rz?}`` (position metres, orientation radians). A nak
+    (``IK unavailable`` / ``unreachable`` / unhomed) returns verbatim as HTTP 200."""
+    link = _require_link(request)
+    data = await _body(request)
+    try:
+        x = float(data["x"])
+        y = float(data["y"])
+        z = float(data["z"])
+        seconds = float(data["seconds"])
+        rx = float(data.get("rx", 0.0))
+        ry = float(data.get("ry", 0.0))
+        rz = float(data.get("rz", 0.0))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise web.HTTPBadRequest(text=f"move-cartesian needs x, y, z, seconds: {exc}") from exc
+    try:
+        result = await link.arm_move_cartesian(x, y, z, seconds, rx=rx, ry=ry, rz=rz)
+    except Exception as exc:
+        raise web.HTTPBadGateway(text=f"arm move-cartesian failed: {exc}") from exc
+    return web.json_response(result)
+
+
 async def handle_arm_home(request: web.Request) -> web.Response:
     """POST /api/arm/home — home one joint: ``{joint}``."""
     link = _require_link(request)
@@ -173,6 +196,7 @@ def add_arm_routes(app: web.Application) -> None:
     app.router.add_post("/api/arm/jog", handle_arm_jog)
     app.router.add_post("/api/arm/move", handle_arm_move)
     app.router.add_post("/api/arm/move-all", handle_arm_move_all)
+    app.router.add_post("/api/arm/move-cartesian", handle_arm_move_cartesian)
     app.router.add_post("/api/arm/home", handle_arm_home)
     app.router.add_post("/api/arm/estop", handle_arm_estop)
     app.router.add_post("/api/arm/clear_estop", handle_arm_clear_estop)

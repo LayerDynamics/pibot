@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from dataclasses import asdict
 from ipaddress import AddressValueError, IPv4Address
 from pathlib import Path
@@ -438,6 +439,18 @@ def build_parser() -> argparse.ArgumentParser:
     a_mall.add_argument("--seconds", type=float, required=True, help="arrival time (s)")
     _add_dry_run(a_mall)
     a_mall.set_defaults(func=cmd_arm)
+
+    a_xyz = arm_sub.add_parser("move-xyz", parents=[g], help="Cartesian end-effector move (IK)")
+    a_xyz.add_argument("target")
+    a_xyz.add_argument("x", type=float, help="mm")
+    a_xyz.add_argument("y", type=float, help="mm")
+    a_xyz.add_argument("z", type=float, help="mm")
+    a_xyz.add_argument("--seconds", type=float, required=True, help="arrival time (s)")
+    a_xyz.add_argument("--rx", type=float, default=0.0, help="roll, degrees")
+    a_xyz.add_argument("--ry", type=float, default=0.0, help="pitch, degrees")
+    a_xyz.add_argument("--rz", type=float, default=0.0, help="yaw, degrees")
+    _add_dry_run(a_xyz)
+    a_xyz.set_defaults(func=cmd_arm)
 
     a_home = arm_sub.add_parser("home", parents=[g], help="home a joint (or --all)")
     a_home.add_argument("target")
@@ -1189,6 +1202,11 @@ def _arm_dry_run(action: str, args: argparse.Namespace) -> str:
         return f"move joint {args.joint} to {args.deg}°{tail}"
     if action == "move-all":
         return f"move {_parse_targets(args.targets)} over {args.seconds}s (synchronized)"
+    if action == "move-xyz":
+        return (
+            f"move EE to ({args.x},{args.y},{args.z}) mm, "
+            f"rpy=({args.rx},{args.ry},{args.rz})° over {args.seconds}s (IK)"
+        )
     if action == "home":
         if getattr(args, "all_joints", False):
             return "home every joint"
@@ -1238,6 +1256,16 @@ def cmd_arm(args: argparse.Namespace) -> int:
             return await client.arm_move_joint(args.joint, args.deg, getattr(args, "speed", None))
         if action == "move-all":
             return await client.arm_move_joints(_parse_targets(args.targets), args.seconds)
+        if action == "move-xyz":
+            return await client.arm_move_cartesian(
+                args.x / 1000.0,
+                args.y / 1000.0,
+                args.z / 1000.0,
+                args.seconds,
+                rx=math.radians(args.rx),
+                ry=math.radians(args.ry),
+                rz=math.radians(args.rz),
+            )
         if action == "home":
             return await _arm_home(client, args)
         if action == "estop":

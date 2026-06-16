@@ -566,6 +566,100 @@ def test_arm_telemetry_pose_absent_without_the_extra() -> None:
     _run(body())
 
 
+# ---- M-ARM-4 task 4.4: Cartesian move (IK) through the control surface ------
+
+
+async def _home_all(ws: Any, n: int) -> None:
+    for j in range(n):
+        await ws.send_json({"cmd": "home", "joint": j})
+        assert (await ws.receive_json())["type"] == "ack"
+
+
+def test_arm_control_move_cartesian_solves_and_routes_to_manager() -> None:
+    """A reachable Cartesian pose is IK-solved, passes the same homing/telemetry gate as a joint
+    `move`, and fans out to per-joint jmoves on the board."""
+    pytest.importorskip("ikpy")  # needs the optional [arm-ik] extra (real IK)
+    from pibot.arm.kinematics import ForwardKinematics
+
+    async def body() -> None:
+        fake = RecordingArmTransport([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])  # 6-joint arm at zero
+        arm = ArmManager([fake], linear_joint_map([6]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        target = ForwardKinematics().solve({1: 20.0, 2: -15.0})  # a known-reachable EE pose
+        async with TestClient(TestServer(app)) as c:
+            await _await_telemetry(c)
+            ws = await c.ws_connect("/arm/control")
+            await _home_all(ws, 6)  # IK targets all joints → gate.move needs every joint homed
+            await ws.send_json(
+                {
+                    "cmd": "move_cartesian",
+                    "x": target.x,
+                    "y": target.y,
+                    "z": target.z,
+                    "rx": target.rx,
+                    "ry": target.ry,
+                    "rz": target.rz,
+                    "seconds": 1.0,
+                }
+            )
+            assert (await ws.receive_json())["type"] == "ack"
+            await ws.close()
+        assert "jmove" in fake.names()  # the synchronized move reached the board
+
+    _run(body())
+
+
+def test_arm_control_move_cartesian_naks_unreachable_pose() -> None:
+    """A pose far outside the workspace is rejected by IK and naks 'unreachable' (NOT 'bad frame'),
+    and never reaches the board — IKError must not be swallowed by the parse-error handler."""
+    pytest.importorskip("ikpy")
+
+    async def body() -> None:
+        fake = RecordingArmTransport([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        arm = ArmManager([fake], linear_joint_map([6]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        async with TestClient(TestServer(app)) as c:
+            await _await_telemetry(c)
+            ws = await c.ws_connect("/arm/control")
+            await _home_all(ws, 6)
+            await ws.send_json(
+                {"cmd": "move_cartesian", "x": 10.0, "y": 0.0, "z": 0.0, "seconds": 1.0}
+            )
+            nak = await ws.receive_json()
+            assert nak["type"] == "nak"
+            assert "unreachable" in nak["reason"]
+            assert "jmove" not in fake.names()
+            await ws.close()
+
+    _run(body())
+
+
+def test_arm_control_move_cartesian_clean_error_without_ik() -> None:
+    """When the [arm-ik] extra/model isn't available the Cartesian move naks cleanly. arm-ik IS
+    installed in the gate, so the absent path is forced by pre-disabling the IK cache."""
+
+    async def body() -> None:
+        fake = RecordingArmTransport([0.0])
+        arm = ArmManager([fake], linear_joint_map([1]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        async with TestClient(TestServer(app)) as c:
+            from agent.app import STATE
+
+            app[STATE].arm_ik = None  # simulate "no [arm-ik] extra": build tried, produced nothing
+            app[STATE].arm_ik_tried = True
+            ws = await c.ws_connect("/arm/control")
+            await ws.send_json(
+                {"cmd": "move_cartesian", "x": 0.3, "y": 0.0, "z": 0.4, "seconds": 1.0}
+            )
+            nak = await ws.receive_json()
+            assert nak["type"] == "nak"
+            assert "IK unavailable" in nak["reason"]
+            assert "jmove" not in fake.names()
+            await ws.close()
+
+    _run(body())
+
+
 # ---- M-ARM-1 task 1.3: AgentClient motion methods hit the right frames -----
 
 
@@ -601,5 +695,38 @@ def test_agent_client_arm_methods_route_through_the_gate() -> None:
         names = fake.names()
         for verb in ("jvel", "jpos", "jmove", "home", "estop", "enable", "grip", "tool"):
             assert verb in names, f"{verb} never reached the board"
+
+    _run(body())
+
+
+def test_agent_client_arm_move_cartesian_routes_through_ik() -> None:
+    """AgentClient.arm_move_cartesian drives a reachable pose to the board (ack) and surfaces an
+    unreachable one as a nak — exercising the client frame end-to-end through real IK."""
+    pytest.importorskip("ikpy")
+    from pibot.arm.kinematics import ForwardKinematics
+
+    async def body() -> None:
+        from pibot.control.client import AgentClient
+
+        fake = RecordingArmTransport([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        arm = ArmManager([fake], linear_joint_map([6]))
+        app = build_app(transport=ResponderTransport(), trust_loopback=True, arm=arm)
+        target = ForwardKinematics().solve({1: 15.0, 2: -20.0})
+        async with TestClient(TestServer(app)) as c:
+            await _await_telemetry(c)
+            client = AgentClient(str(c.make_url("")).rstrip("/"))
+            await client.open()
+            try:
+                for j in range(6):
+                    assert (await client.arm_home(j))["type"] == "ack"
+                ack = await client.arm_move_cartesian(
+                    target.x, target.y, target.z, 1.0, rx=target.rx, ry=target.ry, rz=target.rz
+                )
+                assert ack["type"] == "ack"
+                nak = await client.arm_move_cartesian(10.0, 0.0, 0.0, 1.0)
+                assert nak["type"] == "nak" and "unreachable" in nak["reason"]
+            finally:
+                await client.close()
+        assert "jmove" in fake.names()
 
     _run(body())
