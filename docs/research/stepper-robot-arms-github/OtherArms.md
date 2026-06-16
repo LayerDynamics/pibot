@@ -288,10 +288,12 @@ missing pieces.
    (M-ARM-6). *(Originally: no URDF/DH in-tree; `sizing.py` had link lengths for torque/CAD only, not a
    kinematic chain — A.5 was blocked.)*
 
-5. **No 3D visualization / digital twin.** `Arm.tsx` shows joint-angle bars only. The most relevant
-   comparators render the live pose: 6ar (in-browser URDF twin via `urdf-loader`+three.js — and
-   PiBot's app is *already* React+three-capable), thor (Three.js + RViz), moveo/ar3/ar4/mirobot
-   (RViz/Gazebo/Isaac), parol6/faze4/mariohany (matplotlib/MATLAB).
+5. **No 3D visualization / digital twin.** ✅ **SHIPPED (M-ARM-6, 2026-06-16).** Mission Control now
+   lazy-loads a live URDF twin from `app/public/arm/pibot_arm.urdf` via `ArmTwin.tsx`
+   (`urdf-loader` + three.js), drives its joints from the existing arm telemetry poller, color-codes
+   links near their joint limits, overlays the FK end-effector pose, and falls back cleanly when the
+   model is unavailable. The twin also exposes drag controls that emit joint jog and relative Cartesian
+   move intents through the existing control surface rather than opening a second motion path.
 
 ### 6C. Intentional architectural divergence (*not* gaps — recorded so they aren't mistaken for gaps)
 
