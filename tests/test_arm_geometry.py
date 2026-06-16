@@ -63,6 +63,42 @@ def test_load_accepts_a_custom_urdf(tmp_path: Path) -> None:
     assert model.joints[0].axis == (0.0, 0.0, 1.0)
 
 
+def test_load_rejects_a_revolute_joint_with_no_successor(tmp_path: Path) -> None:
+    """A serial-chain URDF must end with a fixed tool joint; a trailing revolute joint has no
+    successor to infer its link length from, so load() fails loudly instead of emitting length 0."""
+    urdf = (
+        '<?xml version="1.0"?>\n<robot name="bad">\n'
+        '  <link name="base_link"/>\n'
+        '  <joint name="j0" type="revolute">\n'
+        '    <parent link="base_link"/><child link="link_0"/>\n'
+        '    <origin xyz="0 0 0"/><axis xyz="0 0 1"/><limit lower="-1" upper="1"/>\n'
+        '  </joint>\n  <link name="link_0"/>\n</robot>\n'
+    )
+    p = tmp_path / "no_tool.urdf"
+    p.write_text(urdf)
+    with pytest.raises(ValueError, match="successor"):
+        load(p)
+
+
+def test_load_rejects_a_successor_without_origin(tmp_path: Path) -> None:
+    """If the joint after a revolute joint has no <origin>, the link length is undefined → raise."""
+    urdf = (
+        '<?xml version="1.0"?>\n<robot name="bad2">\n'
+        '  <link name="base_link"/>\n'
+        '  <joint name="j0" type="revolute">\n'
+        '    <parent link="base_link"/><child link="link_0"/>\n'
+        '    <origin xyz="0 0 0"/><axis xyz="0 0 1"/><limit lower="-1" upper="1"/>\n'
+        '  </joint>\n  <link name="link_0"/>\n'
+        '  <joint name="tool" type="fixed">\n'
+        '    <parent link="link_0"/><child link="tool0"/>\n'
+        '  </joint>\n  <link name="tool0"/>\n</robot>\n'
+    )
+    p = tmp_path / "no_origin.urdf"
+    p.write_text(urdf)
+    with pytest.raises(ValueError, match="origin"):
+        load(p)
+
+
 def test_default_joints_match_the_configured_arm_joint_limits_shape() -> None:
     # Geometry limits mirror the per-joint config (sizing is the single source); a 6R arm has six
     # [min,max] pairs that a matching arm_joint_limits config would also carry.

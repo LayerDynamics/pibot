@@ -352,34 +352,36 @@ async def _arm_drain(state: AgentState) -> None:
             state.arm_positions_ts = time.time()
 
 
-def _compute_arm_pose(state: AgentState) -> dict[str, float] | None:
-    """Lazy-build the ikpy chain (cached; a missing ``[arm-ik]`` extra is tried once) and solve FK.
+async def _arm_pose(state: AgentState) -> dict[str, float] | None:
+    """End-effector pose (FK of the cached joint angles), or ``None`` when no arm/angles or the
+    ``[arm-ik]`` extra isn't installed.
 
-    Runs in a worker thread (see :func:`_arm_pose`) so the numpy work stays off the event loop.
+    The FK cache (``arm_fk`` / ``arm_fk_tried``) is mutated **only on the event loop** here — the
+    heavy work (chain construction, the numpy solve) is offloaded via ``to_thread`` but its result
+    is assigned back on the loop, so concurrent telemetry requests can't race on the cache and the
+    loop never blocks on numpy (e-stop/control latency unaffected, NFR-1). A missing extra / bad
+    model / solve hiccup logs at debug and yields ``None`` rather than breaking the telemetry call.
     """
+    if state.arm is None or not state.arm_positions:
+        return None
     if state.arm_fk is None and not state.arm_fk_tried:
-        state.arm_fk_tried = True
+        state.arm_fk_tried = True  # set before awaiting so a concurrent request won't also build
         try:
             from pibot.arm.kinematics import ForwardKinematics
 
-            state.arm_fk = ForwardKinematics()
-        except Exception:  # noqa: BLE001 — no [arm-ik] extra / bad model → pose simply absent
+            state.arm_fk = await asyncio.to_thread(ForwardKinematics)
+        except Exception as exc:  # noqa: BLE001 — no [arm-ik] extra / unloadable model
+            _log.debug("arm FK unavailable (no [arm-ik] extra or bad model): %s", exc)
             state.arm_fk = None
-    if state.arm_fk is None:
+    fk = state.arm_fk
+    if fk is None:
         return None
+    positions = dict(state.arm_positions)  # snapshot for the worker thread
     try:
-        return state.arm_fk.solve(state.arm_positions).as_dict()
-    except Exception:  # noqa: BLE001 — never let an FK hiccup break the telemetry response
+        return await asyncio.to_thread(lambda: fk.solve(positions).as_dict())
+    except Exception as exc:  # noqa: BLE001 — never let an FK hiccup break telemetry
+        _log.debug("arm FK solve failed: %s", exc)
         return None
-
-
-async def _arm_pose(state: AgentState) -> dict[str, float] | None:
-    """End-effector pose (FK of the cached joint angles), or ``None`` when no arm/angles or the
-    ``[arm-ik]`` extra isn't installed. The FK (numpy) runs via ``to_thread`` so it never blocks the
-    event loop — keeping e-stop/control latency unaffected, like the motion sends (NFR-1)."""
-    if state.arm is None or not state.arm_positions:
-        return None
-    return await asyncio.to_thread(_compute_arm_pose, state)
 
 
 async def handle_arm_telemetry(request: web.Request) -> web.Response:

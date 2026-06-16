@@ -379,3 +379,20 @@ def test_emit_urdf_cli_prints_a_robot(capsys: pytest.CaptureFixture[str]) -> Non
     assert rc == 0
     out = capsys.readouterr().out
     assert "<robot" in out and 'type="revolute"' in out
+
+
+def test_emit_urdf_rejects_more_joints_than_standard_axes() -> None:
+    """The geometry axis convention only defines STANDARD_6R_AXES; an arm with more DOFs must fail
+    loudly (the kinematic source of truth shouldn't silently guess axes for unknown joints)."""
+    from pibot.arm import geometry
+
+    motors = [s.MotorSpec("NEMA17", 0.45, 1.5)]
+    gears = [s.GearOption(10, 0.9, "belt")]
+    n = len(geometry.STANDARD_6R_AXES) + 1
+    joints = [
+        s.JointConfig(f"j{i}", "horizontal", motor_mass_kg=0.3, link_mass_kg=0.1, link_length_m=0.1)
+        for i in range(n)
+    ]
+    arm = s.ArmSpec(joints=joints, payload_kg=0.5, motor_catalog=motors, gear_catalog=gears)
+    with pytest.raises(ValueError, match="STANDARD_6R_AXES"):
+        s.emit_urdf(arm)

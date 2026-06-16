@@ -6,6 +6,7 @@ joint-angle targets that ArmManager.move_synchronized executes, with no manager/
 
 from __future__ import annotations
 
+import math
 import subprocess
 import sys
 from typing import Any
@@ -115,3 +116,32 @@ def test_fk_base_yaw_does_not_move_the_on_axis_tip() -> None:
     assert pose.x == pytest.approx(0.0, abs=1e-6)
     assert pose.y == pytest.approx(0.0, abs=1e-6)
     assert pose.z == pytest.approx(0.64, abs=1e-6)
+
+
+def test_fk_base_yaw_orients_the_tool_frame() -> None:
+    """Base yaw 90° leaves the on-axis tip put but yaws the tool frame — exercises the orientation
+    (roll/pitch/yaw) output, general branch of _rpy_from_matrix."""
+    pytest.importorskip("ikpy")
+    from pibot.arm.kinematics import ForwardKinematics
+
+    pose = ForwardKinematics().solve({0: 90.0})
+    assert pose.rz == pytest.approx(math.pi / 2, abs=1e-6)  # yaw = 90°
+    assert pose.rx == pytest.approx(0.0, abs=1e-6)
+    assert pose.ry == pytest.approx(0.0, abs=1e-6)
+
+
+def test_rpy_from_matrix_handles_the_gimbal_lock_singularity() -> None:
+    """A ±90° pitch makes sy≈0 — `_rpy_from_matrix` must take its singularity branch (no ikpy)."""
+    from pibot.arm.kinematics import _rpy_from_matrix
+
+    # R_y(+90°): r00 = r10 = 0 → sy = 0 → the singularity path.
+    m = [
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    rx, ry, rz = _rpy_from_matrix(m)
+    assert rx == pytest.approx(0.0, abs=1e-9)
+    assert ry == pytest.approx(math.pi / 2, abs=1e-9)
+    assert rz == 0.0

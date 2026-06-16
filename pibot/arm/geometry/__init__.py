@@ -6,9 +6,10 @@ sizing calculator, and this model (SPEC R3 anti-drift). The 6-revolute joint-axi
 the **MIT-licensed AR3** arm (credited in ``README.md``); link lengths + joint limits come from
 config and are ``⬜ TUNE`` placeholders until the built arm is measured.
 
-Pure stdlib (``xml.etree``) — **no numpy at import**, so the ``pibot.arm`` core / CLI / agent stay
-stdlib-light (NFR-2). Forward kinematics (which loads this URDF into an ikpy chain) lives in
-:mod:`pibot.arm.kinematics` behind the lazy ``[arm-ik]`` extra.
+Stdlib ``xml.etree`` for *generating* the URDF, ``defusedxml`` for *parsing* it (XXE-hardened), and
+**no numpy at import** — so the ``pibot.arm`` core / CLI / agent stay stdlib-light (NFR-2). Forward
+kinematics (which loads this URDF into an ikpy chain) lives in :mod:`pibot.arm.kinematics` behind
+the lazy ``[arm-ik]`` extra.
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ import math
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+
+from defusedxml.ElementTree import parse as _safe_xml_parse
 
 _URDF_NAME = "pibot_arm.urdf"
 _LINK_RADIUS_M = 0.02  # primitive cylinder collision/visual radius (no meshes vendored)
@@ -149,26 +152,39 @@ def load(path: str | Path | None = None) -> Model:
     generated model round-trips exactly.
     """
     urdf_path = Path(path) if path is not None else Path(__file__).parent / _URDF_NAME
-    root = defusedxml.etree.ElementTree.parse(urdf_path).getroot()
+    root = _safe_xml_parse(urdf_path).getroot()
     all_joints = list(root.iter("joint"))
     revolute = [j for j in all_joints if j.get("type") == "revolute"]
 
     joints: list[JointGeom] = []
     for i, j in enumerate(revolute):
+        name = j.get("name", f"joint_{i}")
         axis_el = j.find("axis")
         axis_vals = (axis_el.get("xyz", "0 0 1") if axis_el is not None else "0 0 1").split()
         axis = (float(axis_vals[0]), float(axis_vals[1]), float(axis_vals[2]))
         limit = j.find("limit")
         lower = float(limit.get("lower", "0")) if limit is not None else 0.0
         upper = float(limit.get("upper", "0")) if limit is not None else 0.0
-        # length = offset to the next joint (the following <joint>, revolute or the fixed tool).
+        # The link length is the Z-offset to the NEXT joint in chain (document) order — the inverse
+        # of generate_urdf, which emits a serial chain (revolute…, then the fixed tool). Validate
+        # the assumption instead of silently producing a zero-length link for a hand-edited /
+        # non-generated URDF (missing successor or its <origin>).
         idx = all_joints.index(j)
-        length = _origin_z(all_joints[idx + 1]) if idx + 1 < len(all_joints) else 0.0
+        if idx + 1 >= len(all_joints):
+            raise ValueError(
+                f"joint {name!r} has no successor joint: a serial-chain URDF must end with a fixed "
+                "tool joint — cannot infer this joint's link length"
+            )
+        successor = all_joints[idx + 1]
+        if successor.find("origin") is None:
+            raise ValueError(
+                f"the joint following {name!r} has no <origin>: cannot infer {name!r}'s link length"
+            )
         joints.append(
             JointGeom(
-                name=j.get("name", f"joint_{i}"),
+                name=name,
                 axis=axis,
-                length_m=length,
+                length_m=_origin_z(successor),
                 min_deg=math.degrees(lower),
                 max_deg=math.degrees(upper),
             )

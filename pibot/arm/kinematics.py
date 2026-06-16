@@ -132,16 +132,14 @@ class ForwardKinematics:
             active_links_mask=mask,
         )
 
-        # Ensure the URDF layout matches the mask expectation (fixed base + n joints + tool).
+        # Fail fast if the URDF layout doesn't match the mask (fixed base + n joints + tool); an
+        # extra fixed link (mount/sensor) would otherwise mis-align which links ikpy treats as
+        # actuated and silently corrupt the kinematics.
         if len(self._chain.links) != self._n + 2:
             raise ValueError(
-                f"Incompatible URDF chain: expected {self._n + 2} links "
+                f"incompatible URDF chain: expected {self._n + 2} links "
                 f"(fixed base + {self._n} joints + tool), got {len(self._chain.links)}"
             )
-        self._n = len(loaded.joints)  # type: ignore[attr-defined]
-        # Mask the fixed base + tool links so ikpy doesn't warn/treat them as actuated.
-        mask = [False] + [True] * self._n + [False]
-        self._chain = Chain.from_urdf_file(str(loaded.urdf_path), active_links_mask=mask)  # type: ignore[attr-defined]
 
     @property
     def num_joints(self) -> int:
