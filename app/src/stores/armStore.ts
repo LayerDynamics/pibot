@@ -11,6 +11,8 @@ import type {
 
 // A sample older than this (server-computed age) means the arm drain loop has stalled.
 const STALE_THRESHOLD_MS = 1000;
+const TWIN_JOG_MAX_DPS = 30;
+const TWIN_MOVE_SECONDS = 0.6;
 
 interface ArmState {
   enabled: boolean;
@@ -50,6 +52,12 @@ interface ArmState {
     z: number,
     seconds: number,
     orientation?: { rx?: number; ry?: number; rz?: number },
+  ) => Promise<void>;
+  twinJogJoint: (ep: McEndpoint, joint: number, dragRatio: number) => Promise<void>;
+  twinMovePose: (
+    ep: McEndpoint,
+    pose: { x: number; y: number; z: number; rx: number; ry: number; rz: number },
+    delta: { dxMm: number; dyMm: number },
   ) => Promise<void>;
   reset: () => void;
 }
@@ -277,6 +285,23 @@ export const useArmStore = create<ArmState>((set) => ({
       rx: orientation?.rx ?? 0,
       ry: orientation?.ry ?? 0,
       rz: orientation?.rz ?? 0,
+    });
+  },
+
+  twinJogJoint: async (ep, joint, dragRatio) => {
+    const clamped = Math.max(-1, Math.min(1, dragRatio));
+    await motion(set, ep, "/api/arm/jog", { joint, dps: clamped * TWIN_JOG_MAX_DPS });
+  },
+
+  twinMovePose: async (ep, pose, delta) => {
+    await motion(set, ep, "/api/arm/move-cartesian", {
+      x: pose.x + delta.dxMm / 1000,
+      y: pose.y,
+      z: pose.z + delta.dyMm / 1000,
+      seconds: TWIN_MOVE_SECONDS,
+      rx: pose.rx,
+      ry: pose.ry,
+      rz: pose.rz,
     });
   },
 

@@ -365,4 +365,30 @@ describe("armStore motion actions", () => {
     await useArmStore.getState().stopProgram(FAKE_EP);
     expect(lastCall(spy).url).toContain("/api/arm/programs/stop");
   });
+
+  it("twinJogJoint maps a drag ratio onto arm jog velocity", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().twinJogJoint(FAKE_EP, 3, 0.5);
+    expect(lastCall(spy).url).toContain("/api/arm/jog");
+    expect(lastCall(spy).body).toEqual({ joint: 3, dps: 15 });
+  });
+
+  it("twinMovePose turns a TCP drag delta into a relative cartesian move", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(ackResponse());
+    await useArmStore.getState().twinMovePose(
+      FAKE_EP,
+      { x: 0.3, y: 0.1, z: 0.4, rx: 0.1, ry: 0.2, rz: 0.3 },
+      { dxMm: 25, dyMm: -10 },
+    );
+    expect(lastCall(spy).url).toContain("/api/arm/move-cartesian");
+    expect(lastCall(spy).body).toEqual({
+      x: 0.325,
+      y: 0.1,
+      z: 0.39,
+      seconds: 0.6,
+      rx: 0.1,
+      ry: 0.2,
+      rz: 0.3,
+    });
+  });
 });

@@ -128,6 +128,11 @@ pnpm tauri build --debug   # build the .app (needed for the E2E harness)
 cd app/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
 
+The Arm screen now includes a lazy-loaded URDF twin: the app-served model lives at
+`app/public/arm/pibot_arm.urdf`, the scene component is `app/src/screens/arm/ArmTwin.tsx`, and the
+URDF parsing / limit-color helpers are in `app/src/screens/arm/armTwinModel.ts`. Keep the twin driven
+by the existing `armStore` telemetry polling path; do not add a second telemetry channel for it.
+
 The E2E suite (`app/e2e/`) is **manual / host-marked**, not in CI: it needs a built `.app`
 + WKWebView + a real `pibotd` stand, which the CI container can't provide. Per the
 project's E2E honesty rule, do not relabel a Chromium/integration test as E2E. See

@@ -5,6 +5,7 @@
  * E-Stop latches all motion until cleared (jog locks out while latched).
  */
 import { useEffect, useState } from "react";
+import { Suspense, lazy } from "react";
 
 import type { ArmProgram, ArmProgramStep, McEndpoint } from "../lib/api/types";
 import { useArmStore } from "../stores/armStore";
@@ -14,12 +15,13 @@ interface Props {
   ep: McEndpoint | null;
 }
 
-const POLL_MS = 250;
+const POLL_MS = 100;
 // Joint angles span roughly [-180, 180]°; map that to a 0–100% bar fill.
 const ANGLE_SPAN_DEG = 180;
 // Fixed velocity for the ± jog buttons (deg/sec); held down to move, released to stop.
 const JOG_DPS = 15;
 const EDITABLE_STEP_KINDS = ["moveJ", "moveL", "wait", "grip", "tool"] as const;
+const ArmTwin = lazy(() => import("./arm/ArmTwin"));
 
 type EditableStepKind = (typeof EDITABLE_STEP_KINDS)[number];
 
@@ -108,6 +110,8 @@ export default function Arm({ ep }: Props) {
     grip,
     tool,
     moveCartesian,
+    twinJogJoint,
+    twinMovePose,
     reset,
   } = useArmStore();
 
@@ -329,6 +333,43 @@ export default function Arm({ ep }: Props) {
               </span>
             )}
           </div>
+
+          <Suspense
+            fallback={
+              <div
+                data-testid="arm-twin-shell-loading"
+                className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-sm text-zinc-400"
+              >
+                Loading twin…
+              </div>
+            }
+          >
+            <ArmTwin
+              positions={positions}
+              pose={pose}
+              onJointJog={
+                ep && canControl && !estopped
+                  ? (joint, dragRatio) => {
+                      void twinJogJoint(ep, joint, dragRatio);
+                    }
+                  : undefined
+              }
+              onJointStop={
+                ep && canControl
+                  ? (joint) => {
+                      void twinJogJoint(ep, joint, 0);
+                    }
+                  : undefined
+              }
+              onPoseMove={
+                ep && canControl && !estopped && pose
+                  ? (delta) => {
+                      void twinMovePose(ep, pose, delta);
+                    }
+                  : undefined
+              }
+            />
+          </Suspense>
 
           {/* End-effector Cartesian pose from forward kinematics (M-ARM-3); shown only when the
               robot has the [arm-ik] extra (else `pose` is null). */}
