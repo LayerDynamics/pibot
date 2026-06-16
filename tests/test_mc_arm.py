@@ -121,6 +121,7 @@ def test_robot_link_arm_motion_delegates_to_client() -> None:
                 assert (await link.arm_move_joints({0: 5.0, 1: 6.0}, 2.0))["type"] == "ack"
                 assert (await link.arm_grip(40.0))["type"] == "ack"
                 assert (await link.arm_tool(True))["type"] == "ack"
+                assert (await link.arm_move_cartesian(0.3, 0.0, 0.4, 1.0, rx=0.1))["type"] == "ack"
             finally:
                 await link.disconnect()
         cmds = [f["cmd"] for f in received]
@@ -135,12 +136,23 @@ def test_robot_link_arm_motion_delegates_to_client() -> None:
             "move",
             "grip",
             "tool",
+            "move_cartesian",
         ]
         assert received[0] == {"cmd": "jvel", "joint": 2, "dps": 30.0}
         assert received[1]["dps"] == 10.0  # arm_move_joint(speed=) -> jmove
         assert received[7]["targets"] == {"0": 5.0, "1": 6.0}  # JSON stringifies int keys
         assert received[8] == {"cmd": "grip", "deg": 40.0}
         assert received[9] == {"cmd": "tool", "on": True}
+        assert received[10] == {
+            "cmd": "move_cartesian",
+            "x": 0.3,
+            "y": 0.0,
+            "z": 0.4,
+            "rx": 0.1,
+            "ry": 0.0,
+            "rz": 0.0,
+            "seconds": 1.0,
+        }
 
     _run(body())
 
@@ -158,6 +170,7 @@ def test_robot_link_arm_motion_raises_when_not_connected() -> None:
             link.arm_enable(True),
             link.arm_grip(10.0),
             link.arm_tool(True),
+            link.arm_move_cartesian(0.3, 0.0, 0.4, 1.0),
         ]
         for coro in calls:
             with pytest.raises(RuntimeError):
@@ -197,6 +210,10 @@ def test_arm_motion_routes_proxy_to_robot_link() -> None:
                 await post("/api/arm/enable", {"on": False})
                 await post("/api/arm/grip", {"deg": 33.0})
                 await post("/api/arm/tool", {"on": True})
+                await post(
+                    "/api/arm/move-cartesian",
+                    {"x": 0.25, "y": 0.05, "z": 0.4, "seconds": 1.5, "ry": 0.2},
+                )
 
         cmds = [f["cmd"] for f in received]
         assert cmds == [
@@ -210,6 +227,7 @@ def test_arm_motion_routes_proxy_to_robot_link() -> None:
             "enable",
             "grip",
             "tool",
+            "move_cartesian",
         ]
         assert received[0] == {"cmd": "jvel", "joint": 1, "dps": 20.0}
         assert received[2]["cmd"] == "jmove" and received[2]["dps"] == 5.0
@@ -217,6 +235,16 @@ def test_arm_motion_routes_proxy_to_robot_link() -> None:
         assert received[7] == {"cmd": "enable", "on": False}
         assert received[8] == {"cmd": "grip", "deg": 33.0}
         assert received[9] == {"cmd": "tool", "on": True}
+        assert received[10] == {
+            "cmd": "move_cartesian",
+            "x": 0.25,
+            "y": 0.05,
+            "z": 0.4,
+            "rx": 0.0,
+            "ry": 0.2,
+            "rz": 0.0,
+            "seconds": 1.5,
+        }
 
     _run(body())
 
@@ -230,6 +258,7 @@ def test_arm_motion_routes_503_when_not_connected() -> None:
                 "/api/arm/jog",
                 "/api/arm/move",
                 "/api/arm/move-all",
+                "/api/arm/move-cartesian",
                 "/api/arm/home",
                 "/api/arm/estop",
                 "/api/arm/clear_estop",

@@ -85,11 +85,13 @@ export default function Arm({ ep }: Props) {
     enable,
     grip,
     tool,
+    moveCartesian,
     reset,
   } = useArmStore();
 
   const [goal, setGoal] = useState<Record<string, string>>({});
   const [gripGoal, setGripGoal] = useState(0);
+  const [xyzGoal, setXyzGoal] = useState({ x: "0", y: "0", z: "0", seconds: "2" });
 
   useEffect(() => {
     if (!ep || !connected) {
@@ -117,6 +119,17 @@ export default function Arm({ ep }: Props) {
   const goTo = (jid: string) => {
     const deg = Number.parseFloat(goal[jid] ?? "");
     if (ep && !Number.isNaN(deg)) void moveJoint(ep, Number(jid), deg);
+  };
+
+  const goCartesian = () => {
+    const x = Number.parseFloat(xyzGoal.x);
+    const y = Number.parseFloat(xyzGoal.y);
+    const z = Number.parseFloat(xyzGoal.z);
+    const seconds = Number.parseFloat(xyzGoal.seconds);
+    if (ep && ![x, y, z, seconds].some(Number.isNaN)) {
+      // mm -> m at the UI boundary; orientation defaults to level (rx=ry=rz=0).
+      void moveCartesian(ep, x / 1000, y / 1000, z / 1000, seconds);
+    }
   };
 
   return (
@@ -352,6 +365,50 @@ export default function Arm({ ep }: Props) {
               </button>
             </div>
           </div>
+
+          {/* Cartesian end-effector move via on-Pi IK (M-ARM-4). Only shown when the agent has
+              reported an FK pose — the same [arm-ik] extra + model gate IK, so a pose-less arm
+              degrades gracefully to joint-only control instead of offering a move that will nak. */}
+          {pose && (
+            <div
+              className="flex flex-col gap-2 rounded border border-zinc-800 px-3 py-2"
+              data-testid="arm-cartesian"
+            >
+              <span className="text-xs font-medium text-zinc-300">Move to (mm)</span>
+              <div className="flex items-center gap-2">
+                {(["x", "y", "z"] as const).map((axis) => (
+                  <input
+                    key={axis}
+                    type="number"
+                    data-testid={`arm-xyz-${axis}`}
+                    value={xyzGoal[axis]}
+                    disabled={!canControl || estopped}
+                    onChange={(e) => setXyzGoal({ ...xyzGoal, [axis]: e.target.value })}
+                    className="w-20 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                    placeholder={axis}
+                  />
+                ))}
+                <input
+                  type="number"
+                  data-testid="arm-xyz-seconds"
+                  value={xyzGoal.seconds}
+                  disabled={!canControl || estopped}
+                  onChange={(e) => setXyzGoal({ ...xyzGoal, seconds: e.target.value })}
+                  className="w-16 rounded bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+                  placeholder="s"
+                />
+                <button
+                  type="button"
+                  data-testid="arm-xyz-go"
+                  disabled={!canControl || estopped}
+                  onClick={goCartesian}
+                  className="rounded bg-sky-700 px-3 py-1 text-sm text-zinc-100 hover:bg-sky-600 disabled:opacity-40"
+                >
+                  Go
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

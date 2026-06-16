@@ -36,7 +36,7 @@ _log = get_logger("agent.app")
 if TYPE_CHECKING:
     from agent.autonomy import AutonomyController
     from agent.video import CameraBroker
-    from pibot.arm.kinematics import ForwardKinematics
+    from pibot.arm.kinematics import ForwardKinematics, IKSolver
     from pibot.arm.manager import ArmManager
     from pibot.arm.safety import ArmGate
 
@@ -83,6 +83,11 @@ class AgentState:
     # installed — the agent core stays numpy-free at module load (NFR-2).
     arm_fk: ForwardKinematics | None = None
     arm_fk_tried: bool = False
+    # Inverse kinematics (M-ARM-4): a lazily-built ikpy chain for Cartesian moves, same optional
+    # [arm-ik] extra as FK. Built on the first ``move_cartesian`` frame; absent (None) when the
+    # extra/model isn't available — the /arm/control handler returns a clean "IK unavailable" nak.
+    arm_ik: IKSolver | None = None
+    arm_ik_tried: bool = False
 
 
 STATE: web.AppKey[AgentState] = web.AppKey("pibot_state", AgentState)
@@ -384,6 +389,28 @@ async def _arm_pose(state: AgentState) -> dict[str, float] | None:
         return None
 
 
+async def _arm_ik(state: AgentState) -> IKSolver | None:
+    """The lazily-built :class:`IKSolver` for Cartesian moves, or ``None`` when no arm is configured
+    or the ``[arm-ik]`` extra / model isn't available.
+
+    Mirrors :func:`_arm_pose`'s FK cache discipline: ``arm_ik`` / ``arm_ik_tried`` are mutated only
+    on the event loop, the heavy chain construction is offloaded via ``to_thread``, and a missing
+    extra / bad model logs at debug and yields ``None`` (the caller naks) rather than raising.
+    """
+    if state.arm is None:
+        return None
+    if state.arm_ik is None and not state.arm_ik_tried:
+        state.arm_ik_tried = True  # set before awaiting so a concurrent frame won't also build
+        try:
+            from pibot.arm.kinematics import IKSolver
+
+            state.arm_ik = await asyncio.to_thread(IKSolver)
+        except Exception as exc:  # noqa: BLE001 — no [arm-ik] extra / unloadable model
+            _log.debug("arm IK unavailable (no [arm-ik] extra or bad model): %s", exc)
+            state.arm_ik = None
+    return state.arm_ik
+
+
 async def handle_arm_telemetry(request: web.Request) -> web.Response:
     """Read-only joint angles (deg) per logical joint, served from the drain cache.
 
@@ -550,6 +577,40 @@ async def _arm_command(state: AgentState, frame: dict[str, Any]) -> dict[str, An
                 return _arm_nak(res.reason)
             await asyncio.to_thread(arm.move_synchronized, dict(res.targets), current, seconds)
             return _ARM_ACK
+        if cmd == "move_cartesian":
+            # Cartesian end-effector pose -> IK -> synchronized joint move (M-ARM-4). The agent
+            # contract is a *full* pose (metres + radians); clients fill any orientation they don't
+            # care about from the telemetry pose. IK is loaded lazily and the same homing/e-stop/
+            # clamp safety as a joint `move` is enforced (IK returns all joints, so gate.move makes
+            # full homing a precondition — SPEC R4).
+            solver = await _arm_ik(state)
+            if solver is None:
+                return _arm_nak("IK unavailable: install the [arm-ik] extra / configure a model")
+            from pibot.arm.kinematics import Pose
+
+            pose = Pose(
+                _as_float(frame["x"]),
+                _as_float(frame["y"]),
+                _as_float(frame["z"]),
+                _as_float(frame.get("rx", 0.0)),
+                _as_float(frame.get("ry", 0.0)),
+                _as_float(frame.get("rz", 0.0)),
+            )
+            seconds = _as_float(frame["seconds"])
+            try:
+                # IKError subclasses ValueError; catch it HERE so a kinematics rejection naks as
+                # "unreachable", not as a "bad frame" via the outer parse-error handler.
+                targets = await asyncio.to_thread(solver.solve, pose)
+            except ValueError as exc:
+                return _arm_nak(f"unreachable: {exc}")
+            current = dict(state.arm_positions)
+            res = gate.move(
+                targets, current, seconds, estopped=state.arm_estopped, homed=state.arm_homed
+            )
+            if not res.ok:
+                return _arm_nak(res.reason)
+            await asyncio.to_thread(arm.move_synchronized, dict(res.targets), current, seconds)
+            return _ARM_ACK
     except (KeyError, ValueError, TypeError) as exc:
         return _arm_nak(f"bad frame: {exc}")
     except (OSError, TransportError) as exc:
@@ -560,9 +621,9 @@ async def _arm_command(state: AgentState, frame: dict[str, Any]) -> dict[str, An
 async def handle_arm_control(request: web.Request) -> web.StreamResponse:
     """WS /arm/control — motion frames -> host safety gate -> ArmManager, ack/nak per frame.
 
-    Frames: ``{cmd, joint?, deg?, dps?, seconds?, targets?, on?}`` for
-    ``jpos/jmove/jvel/jstop/home/move/enable/estop/clear_estop``. Bearer-token auth like every
-    other route (via the app's auth middleware).
+    Frames: ``{cmd, joint?, deg?, dps?, seconds?, targets?, on?, x?, y?, z?, rx?, ry?, rz?}`` for
+    ``jpos/jmove/jvel/jstop/home/move/move_cartesian/grip/tool/enable/estop/clear_estop``.
+    Bearer-token auth like every other route (via the app's auth middleware).
     """
     state = request.app[STATE]
     ws = web.WebSocketResponse()

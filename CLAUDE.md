@@ -49,7 +49,8 @@ robot.
    command frames → safety → ack/nak), `/estop`, `/config`, `/video`, `/arm/telemetry`
    (read-only stepper-arm joint angles + per-joint homed + e-stop + gripper state + FK end-effector
    pose when `[arm-ik]` is installed), `/arm/control`
-   (WS motion frames — joints, `grip`/`tool` end-effector — through the host arm safety gate →
+   (WS motion frames — joints, `grip`/`tool` end-effector, and a Cartesian `move_cartesian`
+   pose-via-IK frame when `[arm-ik]` is installed — through the host arm safety gate →
    `ArmManager`, when an arm is configured). Closed-loop
    autonomy (`agent/autonomy.py`) and the camera broker (`agent/video.py`) run **in-process** here.
 6. **CLI** (`pibot/cli.py`) — the host-side `pibot` entrypoint. Subcommands span discover /
@@ -174,8 +175,13 @@ Rust gate — macOS because Tauri's Rust build needs the platform webview).
 - **Keep the `[ml]` boundary intact.** The CLI and `agent` core must never import `pibot.ml`
   / numpy / opencv at module load — those deps exist only on the robot. The same rule covers the arm
   kinematics extra (`[arm-ik]`: ikpy/numpy/scipy): `pibot.arm.geometry` is pure-stdlib XML, and
-  `pibot.arm.kinematics` lazy-imports ikpy inside `ForwardKinematics` — the model is generated from
-  the sizing config (`pibot/arm/geometry/`, FK/IK in `pibot/arm/kinematics.py`).
+  `pibot.arm.kinematics` lazy-imports ikpy inside `ForwardKinematics`/`IKSolver` — the model is
+  generated from the sizing config (`pibot/arm/geometry/`, FK/IK in `pibot/arm/kinematics.py`).
+  `IKSolver.solve` rejects (raises) an unreachable pose or an out-of-limit joint solution rather than
+  emitting it — never send an unchecked IK result to the motors (SPEC R5). Cartesian motion reaches
+  the stack as `pibot arm move-xyz <target> <x> <y> <z> --seconds <s> [--rx --ry --rz]` (mm / degrees
+  at the CLI boundary) and `POST /api/arm/move-cartesian`, both naking cleanly as `"IK unavailable"`
+  when `[arm-ik]` / the model isn't installed.
 - **The sidecar is loopback-only and the link layer is delegated, not duplicated** — new MC
   features add a `routes_*.py` module and reuse `AgentClient`, they don't open their own
   robot connection.

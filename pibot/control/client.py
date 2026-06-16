@@ -120,6 +120,33 @@ class AgentClient:
         """Energize (``True``) or release (``False``) the digital-output tool."""
         return await self._arm_send({"cmd": "tool", "on": on})
 
+    async def arm_move_cartesian(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        seconds: float,
+        *,
+        rx: float = 0.0,
+        ry: float = 0.0,
+        rz: float = 0.0,
+    ) -> dict[str, Any]:
+        """Move the end-effector to a Cartesian pose (position metres, orientation radians) via
+        on-Pi inverse kinematics. Requires the ``[arm-ik]`` extra and a fully homed arm; naks
+        ``IK unavailable`` (no extra/model) or ``unreachable`` (outside the workspace)."""
+        return await self._arm_send(
+            {
+                "cmd": "move_cartesian",
+                "x": x,
+                "y": y,
+                "z": z,
+                "rx": rx,
+                "ry": ry,
+                "rz": rz,
+                "seconds": seconds,
+            }
+        )
+
     async def autonomy_start(
         self, *, prompt: str, max_speed: float | None = None, control_hz: float | None = None
     ) -> dict[str, Any]:

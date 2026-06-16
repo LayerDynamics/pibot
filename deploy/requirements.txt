@@ -8,3 +8,9 @@ defusedxml>=0.7   # hardened URDF parsing in pibot.arm.geometry (M-ARM-3)
 # Wireless transports (optional; uncomment per robot hardware):
 #   bleak>=0.21    # BLE (Nordic-UART style) — BleTransport
 #   smbus2>=0.4    # I2C — I2CTransport
+
+# Robot arm kinematics (optional; uncomment on a robot with a stepper arm attached — SPEC-4).
+# Pulls numpy + scipy transitively; left unpinned so it intersects with `[ml]`'s numpy<2 when
+# both are installed (the resolver takes the intersection). The agent degrades gracefully
+# without it (FK pose absent from /arm/telemetry; Cartesian/IK moves report "IK unavailable").
+#   ikpy>=3.4      # FK/IK solver — pibot.arm.kinematics (lazy-imported; arm core stays numpy-free)
